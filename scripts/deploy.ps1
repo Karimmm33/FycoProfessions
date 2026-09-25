@@ -32,7 +32,7 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 
 # What ships. Anything not named here stays in the project.
-$rootFiles  = @("FycoProfessions.toc", "Core.lua", "Widgets.lua", "README.md", "LICENSE")
+$rootFiles  = @("FycoProfessions.toc", "Core.lua", "Widgets.lua", "Sources.lua", "README.md", "LICENSE")
 $mirrorDirs = @("Data", "Modules")
 
 Write-Host "source : $root"

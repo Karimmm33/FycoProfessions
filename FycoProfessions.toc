@@ -2,15 +2,26 @@
 ## Title: FycoProfessions
 ## Notes: Profession leveling guide - cheapest path to your target skill, shopping list, trainers, gathering zones
 ## Author: Karim
-## Version: 0.1.0
+## Version: 0.9.0
 ## SavedVariables: FycoProfessionsDB
 ## SavedVariablesPerCharacter: FycoProfessionsCharDB
-## X-Modules: Core, Window, Browser, Tracker, Options
+## X-Modules: Core, Window, Professions, Engine, Prices, Views, Gather, Browser, Tracker, Tooltip, Options
 
 Core.lua
 Widgets.lua
+Sources.lua
 Data\Constants.lua
+Data\Items.lua
+Data\Recipes.lua
+Data\World.lua
+Data\Extras.lua
 Modules\Window.lua
+Modules\Professions.lua
+Modules\Engine.lua
+Modules\Prices.lua
+Modules\Views.lua
+Modules\Gather.lua
 Modules\Browser.lua
 Modules\Tracker.lua
+Modules\Tooltip.lua
 Modules\Options.lua

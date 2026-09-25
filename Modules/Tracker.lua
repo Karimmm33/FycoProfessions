@@ -74,7 +74,7 @@ local function Build()
 		SavePosition()
 	end)
 	f:SetScript("OnMouseUp", function(_, button)
-		if button == "RightButton" then ns:OpenWindow() end
+		if button == "RightButton" then ns:OpenWindow(ns:TrackedProfession()) end
 	end)
 
 	titleFS = f:CreateFontString(nil, "ARTWORK", "GameFontNormal")
@@ -153,17 +153,51 @@ ns:RegisterOptions("Tracker", "Tracker", 20, function(L, R)
 		function(v) ns:Set("tracker", "scale", v) end)
 	L:Button("Reset position", function() ns:ResetTracker() end)
 
+	R:Title("What it follows")
+	R:Dropdown("Profession to track", 150, {
+		items = function()
+			local out = {}
+			for _, e in ipairs(ns:PlayerProfessions()) do out[#out + 1] = { value = e.key, text = e.prof.name } end
+			if #out == 0 then out[1] = { value = "none", text = "(no professions)" } end
+			return out
+		end,
+		get = function() return ns:TrackedProfession() or "none" end,
+		set = function(v) if v ~= "none" then ns:SetChar("tracked", v) end end,
+	})
+	R:Note("Opening a profession's tab in the window also makes the tracker follow it.")
 	R:Title("Commands")
 	R:Note("/fprof tracker show, hide, lock, unlock or reset. Plain "
 	    .. "/fprof tracker toggles it.")
 end)
 
+--- Ask the tracked profession's view for its current step.
+function ns:UpdateTracker()
+	local key = ns:TrackedProfession()
+	local p = key and ns.ProfessionByKey[key]
+	local state = key and ns:ProfessionState(key)
+	local provider = p and ns.TrackerProviders[p.kind]
+	if not (p and state and provider) then
+		ns:SetTrackerLines("FycoProfessions", { "|cff808080No profession to track yet.|r" })
+		return
+	end
+	local ok, title, lines = pcall(provider, p, state)
+	if ok then
+		ns:SetTrackerLines(title, lines)
+	else
+		ns:SetTrackerLines(p.name, { "|cffff6060could not work out a step:|r", tostring(title) })
+	end
+end
+
 function M:OnLoad()
 	Build()
 	ns:Subscribe("SettingChanged", function(section, key)
 		if section == "enabled" and key == "tracker" then UpdateShown() end
+		if section == "char" and key == "tracked" then ns:UpdateTracker() end
 		if section ~= "tracker" then return end
 		if key == "shown" then UpdateShown() end
 		if key == "scale" and f then f:SetScale(ns:Get("tracker", "scale")) end
 	end)
+	ns:Subscribe("GuideChanged", function() ns:UpdateTracker() end)
+	ns:Subscribe("BagsChanged", function() ns:UpdateTracker() end)
+	ns:UpdateTracker()
 end

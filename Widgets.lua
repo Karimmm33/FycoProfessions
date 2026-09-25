@@ -97,6 +97,145 @@ function UI.ItemButton(parent, size, onClick)
 end
 
 ----------------------------------------------------------------------
+-- money and colours
+----------------------------------------------------------------------
+
+--- "12g 50s 3c" in plain text: safe in chat, in tooltips and in rows.
+function UI.Money(copper)
+	copper = math.floor((copper or 0) + 0.5)
+	local g, s, c = math.floor(copper / 10000), math.floor(copper / 100) % 100, copper % 100
+	if g > 0 then return string.format("%dg %02ds", g, s) end
+	if s > 0 then return string.format("%ds %02dc", s, c) end
+	return c .. "c"
+end
+
+-- recipe and node difficulty colours, as the trade skill window shows them
+UI.ColorHex = {
+	red = "|cffff2020", orange = "|cffff8040", yellow = "|cffffff00",
+	green = "|cff40c040", grey = "|cff808080",
+}
+
+function UI.Colored(color, text)
+	return (UI.ColorHex[color] or "|cffffffff") .. text .. "|r"
+end
+
+----------------------------------------------------------------------
+-- row list: a scrolling list of clickable rows, the one list widget
+-- every guide view is built from
+----------------------------------------------------------------------
+
+--- rows: { text, right, icon, item (id), tip (lines), onClick, key }.
+--- name must be unique (the faux scroll template needs a global name).
+function UI.RowList(parent, name, width, height, rowH)
+	rowH = rowH or 18
+	local list = CreateFrame("Frame", name, parent)
+	list:SetWidth(width)
+	list:SetHeight(height)
+	list.data, list.rows, list.selected = {}, {}, nil
+
+	local scroll = CreateFrame("ScrollFrame", name .. "Scroll", list, "FauxScrollFrameTemplate")
+	scroll:SetPoint("TOPLEFT", 0, 0)
+	scroll:SetPoint("BOTTOMRIGHT", -24, 0)
+
+	local visible = math.max(1, math.floor(height / rowH))
+
+	local function Update()
+		local offset = FauxScrollFrame_GetOffset(scroll)
+		for i = 1, visible do
+			local row, d = list.rows[i], list.data[i + offset]
+			if d then
+				row.data = d
+				row.text:SetText(d.text or "")
+				row.right:SetText(d.right or "")
+				if d.icon then
+					row.icon:SetTexture(d.icon)
+					row.icon:Show()
+					row.text:SetPoint("LEFT", row.icon, "RIGHT", 4, 0)
+				else
+					row.icon:Hide()
+					row.text:SetPoint("LEFT", row, "LEFT", 4 + (d.indent or 0), 0)
+				end
+				if list.selected ~= nil and d.key == list.selected then row:LockHighlight() else row:UnlockHighlight() end
+				row:Show()
+			else
+				row.data = nil
+				row:Hide()
+			end
+		end
+		FauxScrollFrame_Update(scroll, #list.data, visible, rowH)
+	end
+
+	scroll:SetScript("OnVerticalScroll", function(self, offset)
+		FauxScrollFrame_OnVerticalScroll(self, offset, rowH, Update)
+	end)
+
+	for i = 1, visible do
+		local row = CreateFrame("Button", nil, list)
+		row:SetHeight(rowH)
+		row:SetPoint("TOPLEFT", 0, -(i - 1) * rowH)
+		row:SetPoint("RIGHT", scroll, "RIGHT", 0, 0)
+		row:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
+		row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+
+		row.icon = row:CreateTexture(nil, "ARTWORK")
+		row.icon:SetWidth(rowH - 2)
+		row.icon:SetHeight(rowH - 2)
+		row.icon:SetPoint("LEFT", 2, 0)
+
+		row.right = row:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+		row.right:SetPoint("RIGHT", -4, 0)
+		row.right:SetJustifyH("RIGHT")
+
+		row.text = row:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+		row.text:SetPoint("LEFT", 4, 0)
+		row.text:SetPoint("RIGHT", row.right, "LEFT", -6, 0)
+		row.text:SetJustifyH("LEFT")
+
+		row:SetScript("OnClick", function(self, button)
+			local d = self.data
+			if not d then return end
+			if d.item and HandleModifiedItemClick(UI.ItemLink(d.item)) then return end
+			if d.onClick then d.onClick(d, button) end
+		end)
+		row:SetScript("OnEnter", function(self)
+			local d = self.data
+			if not d or not (d.item or d.tip) then return end
+			GameTooltip:SetOwner(self, UI.AnchorFor(self))
+			if d.item then
+				GameTooltip:SetHyperlink("item:" .. d.item .. ":0:0:0:0:0:0:0:0")
+			end
+			for j = 1, #(d.tip or {}) do
+				GameTooltip:AddLine(d.tip[j], 1, 1, 1, true)
+			end
+			GameTooltip:Show()
+		end)
+		row:SetScript("OnLeave", function() GameTooltip:Hide() end)
+		list.rows[i] = row
+	end
+
+	function list:SetData(data, keepScroll)
+		self.data = data or {}
+		if not keepScroll then
+			FauxScrollFrame_SetOffset(scroll, 0)
+			local bar = _G[scroll:GetName() .. "ScrollBar"]
+			if bar then bar:SetValue(0) end
+		end
+		Update()
+	end
+
+	function list:Select(key)
+		self.selected = key
+		Update()
+	end
+
+	function list:Count()
+		return #self.data
+	end
+
+	return list
+end
+
+----------------------------------------------------------------------
 -- dropdown
 ----------------------------------------------------------------------
 

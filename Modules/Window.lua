@@ -207,6 +207,17 @@ function ns:WindowShown(key)
 	return win and win:IsShown() and (not key or current == key)
 end
 
+--- A tab's content frame, once it has been opened (for tests).
+function ns:TabPane(key)
+	local t = FindTab(key)
+	return t and t.pane
+end
+
+function ns:TabHidden(key)
+	local t = FindTab(key)
+	return t == nil or t.hidden == true
+end
+
 function ns:ResetWindow()
 	ns:Set("general", "windowPos", nil)
 	if win then Restore() end

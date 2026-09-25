@@ -321,3 +321,110 @@ function FauxScrollFrame_GetOffset(f) return f._offset or 0 end
 function FauxScrollFrame_SetOffset(f, o) f._offset = o end
 function FauxScrollFrame_Update() end
 function FauxScrollFrame_OnVerticalScroll(f, offset, h, fn) f._offset = math.floor(offset / h + 0.5); fn() end
+
+----------------------------------------------------------------------
+-- professions: skill lines, with collapsible headers like the real list
+----------------------------------------------------------------------
+
+-- MOCK.skills = { {name, rank, max}, ... } under "Professions";
+-- MOCK.secondary under "Secondary Skills". A header can be collapsed.
+MOCK.skills, MOCK.secondary = {}, {}
+MOCK.collapsed = {}
+MOCK.level, MOCK.race = 80, { "Orc", "Orc" }
+
+local function SkillLines()
+	local out = {}
+	local groups = { { "Professions", MOCK.skills }, { "Secondary Skills", MOCK.secondary },
+		{ "Weapon Skills", { { "Swords", 400, 400 } } } }
+	for _, g in ipairs(groups) do
+		out[#out + 1] = { g[1], true, not MOCK.collapsed[g[1]] }
+		if not MOCK.collapsed[g[1]] then
+			for _, s in ipairs(g[2]) do out[#out + 1] = { s[1], false, false, s[2], s[3] } end
+		end
+	end
+	return out
+end
+
+function GetNumSkillLines() return #SkillLines() end
+function GetSkillLineInfo(i)
+	local l = SkillLines()[i]
+	if not l then return nil end
+	if l[2] then return l[1], true, l[3], 0, 0, 0, 0 end
+	return l[1], false, false, l[4], 0, 0, l[5]
+end
+-- like the client, expanding or collapsing fires SKILL_LINES_CHANGED; the
+-- counter lets a test prove the addon does not loop on its own events
+MOCK.skillEvents = 0
+local function SkillEvent()
+	MOCK.skillEvents = MOCK.skillEvents + 1
+	if MOCK.skillEvents < 50 then MOCK.fire("SKILL_LINES_CHANGED") end
+end
+function ExpandSkillHeader(i) local l = SkillLines()[i]; if l then MOCK.collapsed[l[1]] = nil; SkillEvent() end end
+function CollapseSkillHeader(i) local l = SkillLines()[i]; if l then MOCK.collapsed[l[1]] = true; SkillEvent() end end
+
+-- the trade skill window: MOCK.trade = { line = "Jewelcrafting", recipes = { spellID, ... } }
+function GetTradeSkillLine() return MOCK.trade and MOCK.trade.line or "UNKNOWN" end
+function IsTradeSkillLinked() return MOCK.trade and MOCK.trade.linked or false end
+function GetNumTradeSkills() return MOCK.trade and (#MOCK.trade.recipes + 1) or 0 end
+function GetTradeSkillInfo(i)
+	if i == 1 then return "Gems", "header" end
+	return "Recipe", "optimal"
+end
+function GetTradeSkillRecipeLink(i)
+	local id = MOCK.trade and MOCK.trade.recipes[i - 1]
+	return id and ("|cffffd000|Henchant:" .. id .. "|h[Recipe]|h|r") or nil
+end
+
+-- reputations: MOCK.factions = { {name, standingId}, ... } under one header
+MOCK.factions, MOCK.factionCollapsed, MOCK.factionEvents = {}, false, 0
+local function FactionEvent()
+	MOCK.factionEvents = MOCK.factionEvents + 1
+	if MOCK.factionEvents < 50 then MOCK.fire("UPDATE_FACTION") end
+end
+function GetNumFactions() return MOCK.factionCollapsed and 1 or (#MOCK.factions + 1) end
+function GetFactionInfo(i)
+	if i == 1 then return "Other", "", 4, 0, 0, 0, false, false, true, MOCK.factionCollapsed end
+	if MOCK.factionCollapsed then return nil end
+	local f = MOCK.factions[i - 1]
+	if not f then return nil end
+	return f[1], "", f[2], 0, 0, 0, false, false, false, false
+end
+function ExpandFactionHeader() MOCK.factionCollapsed = false; FactionEvent() end
+function CollapseFactionHeader() MOCK.factionCollapsed = true; FactionEvent() end
+
+-- bags and bank: MOCK.bags[id] = count; MOCK.bank = { [bag] = { {id, count}, ... } }
+MOCK.bags, MOCK.bank = {}, {}
+function GetItemCount(id) return MOCK.bags[id] or 0 end
+function GetContainerNumSlots(bag) return MOCK.bank[bag] and #MOCK.bank[bag] or 0 end
+function GetContainerItemLink(bag, slot)
+	local e = MOCK.bank[bag] and MOCK.bank[bag][slot]
+	return e and ("|cffffffff|Hitem:" .. e[1] .. ":0:0:0:0:0:0:0:0|h[x]|h|r") or nil
+end
+function GetContainerItemInfo(bag, slot)
+	local e = MOCK.bank[bag] and MOCK.bank[bag][slot]
+	return e and "icon" or nil, e and e[2] or nil
+end
+
+function time() return MOCK.epoch or 1790000000 end
+function GetRealmName() return "Frostmourne Rebuffed" end
+function UnitRace() return MOCK.race[1], MOCK.race[2] end
+function UnitLevel() return MOCK.level end
+function GetPlayerMapPosition() return MOCK.mapX or 0.5, MOCK.mapY or 0.5 end
+
+-- the Auction House: MOCK.auctions = { {id, count, buyout}, ... }
+MOCK.auctions, MOCK.queries = {}, {}
+MOCK.canQuery, MOCK.canQueryAll = true, true
+function CanSendAuctionQuery() return MOCK.canQuery, MOCK.canQueryAll end
+function QueryAuctionItems(name, _, _, _, _, _, _, _, _, getAll)
+	table.insert(MOCK.queries, { name = name, all = getAll })
+end
+function GetNumAuctionItems() return #MOCK.auctions end
+function GetAuctionItemLink(_, i)
+	local a = MOCK.auctions[i]
+	return a and ("|cffffffff|Hitem:" .. a[1] .. ":0:0:0:0:0:0:0:0|h[x]|h|r") or nil
+end
+function GetAuctionItemInfo(_, i)
+	local a = MOCK.auctions[i]
+	if not a then return nil end
+	return "Item", "icon", a[2], 1, 1, 1, 0, 0, a[3], 0, nil, "Seller"
+end

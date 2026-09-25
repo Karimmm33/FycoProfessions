@@ -153,6 +153,7 @@ ns.Defaults = {
 		rate = 2,             -- skill points per skill-up (this realm: 2)
 		target = "rank",      -- "rank" = the cap of the rank you have, or a skill number
 		materials = "ah",     -- "ah" buy or gather, "gathered" gathered materials only
+		drops = false,        -- also use recipes that only drop (or come from the Auction House)
 	},
 	tracker = {
 		shown = true,
@@ -168,7 +169,7 @@ ns.CharDefaults = {
 
 -- module switches, written one key at a time so a module added later turns
 -- itself on without resetting what has been saved
-local moduleDefaults = { tracker = true }
+local moduleDefaults = { tracker = true, tooltip = true }
 
 function ns:Get(section, key)
 	local s = FycoProfessionsDB and FycoProfessionsDB[section]
@@ -322,6 +323,9 @@ local function Help()
 	ns:Print("  " .. Y .. "/fprof target [rank or 1-450]|r - show or set where guides stop")
 	ns:Print("  " .. Y .. "/fprof faction [auto, alliance, horde]|r - whose trainers and vendors to use")
 	ns:Print("  " .. Y .. "/fprof materials [ah or gathered]|r - allow buying materials, or gathered only")
+	ns:Print("  " .. Y .. "/fprof drops|r      - also use recipes that only drop, on or off")
+	ns:Print("  " .. Y .. "/fprof path [profession]|r - the next steps, in chat")
+	ns:Print("  " .. Y .. "/fprof scan [list]|r - scan Auction House prices (Auction House open)")
 	ns:Print("  " .. Y .. "/fprof tracker [show, hide, lock, unlock, reset]|r - the step tracker")
 	ns:Print("  " .. Y .. "/fprof minimap|r    - show or hide the minimap button")
 	ns:Print("  " .. Y .. "/fprof debug|r      - toggle debug output")
@@ -366,6 +370,22 @@ SlashCmdList.FYCOPROF = function(input)
 			ns:Print("usage: " .. Y .. "/fprof materials ah|r or " .. Y .. "gathered|r")
 		end
 		ns:Print("materials: " .. Y .. ns.MaterialsText[ns:Materials()] .. "|r")
+
+	elseif cmd == "drops" then
+		ns:Set("guide", "drops", not ns:Get("guide", "drops"))
+		ns:Print("recipes from drops: " .. Y .. (ns:Get("guide", "drops") and "used" or "not used") .. "|r")
+
+	elseif cmd == "path" then
+		if ns.PathToChat then ns:PathToChat(rest) end
+
+	elseif cmd == "scan" then
+		if not ns.ScanAll then
+			ns:Print("prices module is off")
+		elseif rest == "list" then
+			ns:ScanShopping()
+		elseif not ns:ScanAll() and ns:AuctionOpen() then
+			ns:ScanShopping()
+		end
 
 	elseif cmd == "tracker" then
 		if not ns.TrackerCommand then

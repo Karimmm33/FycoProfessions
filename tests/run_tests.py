@@ -38,10 +38,16 @@ def toc_files():
 class Client:
     """One mock game client with the addon loaded and logged in."""
 
-    def __init__(self, faction="Horde", saved=None):
+    def __init__(self, faction="Horde", saved=None, skills=(), secondary=(), level=80, setup=None):
         self.lua = lupa_lua.LuaRuntime(unpack_returned_tuples=True)
         self.lua.execute(self.dofile_src(os.path.join(ROOT, "tests", "wowmock.lua")))
-        self.lua.execute('MOCK.faction = "%s"' % faction)
+        self.lua.execute('MOCK.faction = "%s"; MOCK.level = %d' % (faction, level))
+        for name, rank, mx in skills:
+            self.lua.execute('table.insert(MOCK.skills, {"%s", %d, %d})' % (name, rank, mx))
+        for name, rank, mx in secondary:
+            self.lua.execute('table.insert(MOCK.secondary, {"%s", %d, %d})' % (name, rank, mx))
+        if setup:
+            self.lua.execute(setup)
         if saved:
             self.lua.execute(saved)
         self.lua.execute("ns = {}")
@@ -371,6 +377,469 @@ def slash_everything_without_errors():
     for m in c.chat():
         stray = re.sub(r"\|c[0-9a-fA-F]{8}|\|r|\|\|", "", m)
         assert "|" not in stray, "raw | in chat: %r" % m
+
+
+# ---------------------------------------------------------------------------
+# phase 1: detection
+# ---------------------------------------------------------------------------
+
+JC_SKIN = dict(skills=[("Jewelcrafting", 120, 150), ("Skinning", 80, 150)],
+               secondary=[("Cooking", 1, 75), ("Fishing", 40, 75)])
+
+
+@test
+def detects_professions_and_tabs():
+    c = Client(**JC_SKIN)
+    keys = [c.eval("ns:PlayerProfessions()[%d].key" % i) for i in range(1, c.eval("#ns:PlayerProfessions()") + 1)]
+    assert keys == ["jewelcrafting", "skinning", "cooking", "fishing"], keys
+    assert c.eval('ns:ProfessionState("jewelcrafting").skill') == 120
+    assert c.eval('ns:ProfessionState("jewelcrafting").max') == 150
+    for k in keys:
+        assert not c.eval('ns:TabHidden("%s")' % k), k
+    for k in ("alchemy", "mining", "firstaid"):
+        assert c.eval('ns:TabHidden("%s")' % k), k
+    assert not c.eval('ns:ProfessionState("alchemy")')
+    no_errors(c)
+
+
+@test
+def collapsed_headers_are_read_and_restored():
+    c = Client(setup='MOCK.collapsed["Professions"] = true; MOCK.collapsed["Secondary Skills"] = true', **JC_SKIN)
+    assert c.eval('ns:HasProfession("jewelcrafting")')
+    assert c.eval('ns:HasProfession("fishing")')
+    assert c.eval('MOCK.collapsed["Professions"]'), "the header was left expanded"
+    assert c.eval('MOCK.collapsed["Secondary Skills"]')
+
+
+@test
+def skill_up_rescans_and_recomputes():
+    c = Client(**JC_SKIN)
+    first = c.eval('ns:GetPath("jewelcrafting").from')
+    assert first == 120
+    c.run('MOCK.skills[1][2] = 124; MOCK.fire("CHAT_MSG_SKILL", "Your skill in Jewelcrafting has increased to 124.")')
+    assert c.eval('ns:ProfessionState("jewelcrafting").skill') == 124
+    assert c.eval('ns:GetPath("jewelcrafting").from') == 124
+    # learning a new profession shows its tab
+    c.run('MOCK.advance(1); table.insert(MOCK.skills, {"Mining", 1, 75}); MOCK.fire("SKILL_LINES_CHANGED")')
+    assert not c.eval('ns:TabHidden("mining")')
+    no_errors(c)
+
+
+@test
+def known_recipes_come_from_the_trade_skill_window():
+    c = Client(**JC_SKIN)
+    assert not c.eval('ns:KnowsRecipe("jewelcrafting", 25278)')
+    c.run('MOCK.trade = { line = "Jewelcrafting", recipes = { 25255, 25278 } }; MOCK.fire("TRADE_SKILL_SHOW")')
+    assert c.eval('ns:KnowsRecipe("jewelcrafting", 25278)')
+    assert c.eval('ns:KnownCount("jewelcrafting")') == 2
+    # someone else's linked window does not count as yours
+    c.run('MOCK.trade = { line = "Jewelcrafting", recipes = { 25283 }, linked = true }; MOCK.fire("TRADE_SKILL_SHOW")')
+    assert not c.eval('ns:KnowsRecipe("jewelcrafting", 25283)')
+    # it survives a relog
+    known = c.eval('FycoProfessionsCharDB.known.jewelcrafting[25278]')
+    assert known
+    no_errors(c)
+
+
+# ---------------------------------------------------------------------------
+# phase 2: Jewelcrafting end to end
+# ---------------------------------------------------------------------------
+
+def recipe(c, prof, spell):
+    return c.eval("""(function()
+        for _, r in ipairs(ns.Recipes.%s) do if r.sp == %d then return r end end end)()""" % (prof, spell))
+
+
+@test
+def recipe_colours_and_chances():
+    c = Client()
+    c.run("r = (function() for _, r in ipairs(ns.Recipes.jewelcrafting) do if r.sp == 25255 then return r end end end)()")
+    assert c.eval("r.n") == "Delicate Copper Wire"
+    for skill, colour, chance in ((1, "orange", 1), (19, "orange", 1), (20, "yellow", 0.75), (34, "yellow", 0.75),
+                                  (35, "green", 0.25), (49, "green", 0.25), (50, "grey", 0)):
+        assert c.eval("ns:RecipeColor(r, %d)" % skill) == colour, (skill, c.eval("ns:RecipeColor(r, %d)" % skill))
+        assert c.eval("ns:RecipeChance(r, %d)" % skill) == chance
+    # trainer recipes start orange at their trainer skill, not at 1
+    c.run("b = (function() for _, r in ipairs(ns.Recipes.jewelcrafting) do if r.sp == 25278 then return r end end end)()")
+    assert c.eval("b.o") == 50 and c.eval("ns:RecipeColor(b, 49)") == "red"
+
+
+def path_steps(c, expr):
+    c.run("_p = %s" % expr)
+    n = c.eval("#_p.steps")
+    return [dict(kind=c.eval("_p.steps[%d].kind" % i), frm=c.eval("_p.steps[%d].from" % i),
+                 to=c.eval("_p.steps[%d].to" % i), count=c.eval("_p.steps[%d].count" % i),
+                 name=c.eval("_p.steps[%d].rec and _p.steps[%d].rec.n" % (i, i)))
+            for i in range(1, n + 1)]
+
+
+@test
+def jewelcrafting_path_from_1():
+    c = Client(skills=[("Jewelcrafting", 1, 75)])
+    steps = path_steps(c, 'ns:GetPath("jewelcrafting")')
+    assert steps, "no steps"
+    assert all(s["kind"] == "craft" for s in steps), steps
+    assert steps[0]["frm"] == 1 and steps[-1]["to"] == 75, steps
+    for a, b in zip(steps, steps[1:]):
+        assert a["to"] == b["frm"], (a, b)
+    assert all(s["count"] >= 1 for s in steps)
+    # every recipe on it is one this character can get
+    ok = c.eval("""(function()
+        for _, st in ipairs(_p.steps) do
+            local ok, how = ns:RecipeStatus("jewelcrafting", st.rec)
+            if not ok or how == "drop" then return st.rec.n end
+        end return true end)()""")
+    assert ok is True, ok
+    no_errors(c)
+
+
+@test
+def rate_changes_the_path():
+    c = Client(skills=[("Jewelcrafting", 1, 75)])
+    x2 = c.eval('ns:GetPath("jewelcrafting").crafts')
+    c.slash("rate 1")
+    x1 = c.eval('ns:GetPath("jewelcrafting").crafts')
+    assert x1 > x2 * 1.6, (x1, x2)       # about twice as many crafts at x1
+    assert c.eval('ns:GetPath("jewelcrafting").rate') == 1
+
+
+@test
+def trainer_checkpoints_and_nearest_trainer():
+    c = Client(skills=[("Jewelcrafting", 70, 75)], level=15)
+    c.slash("target 300")
+    steps = path_steps(c, 'ns:GetPath("jewelcrafting")')
+    trains = [s for s in steps if s["kind"] == "train"]
+    assert trains, steps
+    assert c.eval("_p.steps[%d].cap" % (steps.index(trains[0]) + 1)) == 150
+    assert trains[0]["frm"] == 75
+    caps = [c.eval("_p.steps[%d].cap" % (i + 1)) for i, s in enumerate(steps) if s["kind"] == "train"]
+    assert caps == [150, 225, 300], caps
+    assert c.eval("_p.to") == 300
+    # levels come from the trainer data
+    lvl = c.eval('ns.RankInfo.jewelcrafting[3].lvl')
+    assert lvl and lvl >= 10, lvl
+    near = c.eval('#ns:NearestTrainers("jewelcrafting", 150, 3)')
+    assert near >= 1
+    side = c.eval('ns:NearestTrainers("jewelcrafting", 150, 1)[1].t.side')
+    assert side in ("H", "B"), side
+    no_errors(c)
+
+
+@test
+def faction_decides_vendor_recipes():
+    c = Client(faction="Horde")
+    # Black Whelp Cloak: sold only by Alliance vendors
+    c.run("r = (function() for _, r in ipairs(ns.Recipes.leatherworking) do if r.sp == 9070 then return r end end end)()")
+    c.run("_ok, _how, _why = ns:RecipeStatus('leatherworking', r)")
+    assert not c.eval("_ok") and c.eval("_why") == "faction", c.eval("_why")
+    c.slash("faction alliance")
+    assert c.eval("(ns:RecipeStatus('leatherworking', r))")
+
+
+@test
+def reputation_recipes_need_the_standing():
+    c = Client()
+    c.run("r = (function() for _, r in ipairs(ns.Recipes.alchemy) do if r.sp == 17559 then return r end end end)()")
+    c.run("_ok, _how, _why = ns:RecipeStatus('alchemy', r)")
+    assert not c.eval("_ok") and c.eval("_why") == "rep", c.eval("_why")
+    c.run('MOCK.advance(1.5); MOCK.factions = { {"Argent Dawn", 6} }; MOCK.fire("UPDATE_FACTION")')
+    assert c.eval("(ns:RecipeStatus('alchemy', r))")
+    c.run('MOCK.advance(1.5); MOCK.factions = { {"Argent Dawn", 5} }; MOCK.fire("UPDATE_FACTION")')
+    assert not c.eval("(ns:RecipeStatus('alchemy', r))")
+
+
+@test
+def expanding_headers_does_not_loop():
+    # the client fires SKILL_LINES_CHANGED / UPDATE_FACTION when a header is
+    # expanded; reacting to our own expanding must not start a loop
+    c = Client(setup='MOCK.collapsed["Professions"] = true', **JC_SKIN)
+    c.run('MOCK.advance(1); MOCK.skillEvents = 0; MOCK.fire("SKILL_LINES_CHANGED"); MOCK.advance(2)')
+    assert c.eval("MOCK.skillEvents") <= 4, c.eval("MOCK.skillEvents")
+    assert c.eval('MOCK.collapsed["Professions"]')
+    c.run('MOCK.factions = { {"Argent Dawn", 6} }; MOCK.factionCollapsed = true')
+    c.run('MOCK.advance(2); MOCK.factionEvents = 0; MOCK.fire("UPDATE_FACTION"); MOCK.advance(2)')
+    assert c.eval("MOCK.factionEvents") <= 4, c.eval("MOCK.factionEvents")
+    assert c.eval('ns:RepAtLeast("Argent Dawn", "Honored")')
+    assert c.eval("MOCK.factionCollapsed"), "the reputation header was left expanded"
+    no_errors(c)
+
+
+@test
+def drop_recipes_only_when_allowed():
+    c = Client()
+    c.run("""_drop = (function() for _, r in ipairs(ns.Recipes.tailoring) do
+        if #r.src == 1 and r.src[1].t == "world" then return r end end end)()""")
+    assert c.eval("_drop ~= nil")
+    assert not c.eval("(ns:RecipeStatus('tailoring', _drop))")
+    c.slash("drops")
+    assert c.eval("(ns:RecipeStatus('tailoring', _drop))")
+    # a recipe you know is always usable
+    c.slash("drops")
+    c.run('FycoProfessionsCharDB.known = { tailoring = { [_drop.sp] = true } }')
+    assert c.eval("(ns:RecipeStatus('tailoring', _drop))")
+
+
+@test
+def shopping_list_counts_bags_and_bank():
+    c = Client(skills=[("Jewelcrafting", 1, 75)])
+    c.run('_p = ns:GetPath("jewelcrafting")')
+    n = c.eval("#_p.shopping")
+    assert n >= 1
+    item = c.eval("_p.shopping[1].id")
+    need = c.eval("_p.shopping[1].need")
+    c.run("ns:CountShopping(_p.shopping)")
+    assert c.eval("_p.shopping[1].missing") == need
+    c.run("MOCK.bags[%d] = 2" % item)
+    c.run('MOCK.bank[-1] = { {%d, 3} }; MOCK.fire("BANKFRAME_OPENED"); MOCK.fire("BANKFRAME_CLOSED")' % item)
+    c.run("MOCK.bank = {}")          # the bank is closed; what we saw is remembered
+    assert c.eval("(ns:ItemHave(%d))" % item) == 5
+    c.run("ns:CountShopping(_p.shopping)")
+    assert c.eval("_p.shopping[1].missing") == max(0, need - 5)
+    assert c.eval("ns:BankKnown()")
+
+
+@test
+def auction_house_full_scan():
+    c = Client(skills=[("Jewelcrafting", 1, 75)])
+    c.run('AuctionFrame = CreateFrame("Frame", "AuctionFrame", UIParent); MOCK.fire("AUCTION_HOUSE_SHOW")')
+    assert c.eval("FycoProfessionsAHScan ~= nil"), "no scan button on the Auction House"
+    c.run("MOCK.auctions = { {2840, 20, 2000}, {2840, 5, 750}, {99999999, 1, 5} }")
+    assert c.eval("ns:ScanAll()")
+    assert c.eval("MOCK.queries[1].all") is True
+    c.run('MOCK.fire("AUCTION_ITEM_LIST_UPDATE"); MOCK.advance(1)')
+    assert c.eval("(ns:AHPrice(2840))") == 100, c.eval("(ns:AHPrice(2840))")   # 2000 / 20 beats 750 / 5
+    assert c.eval("(ns:AHPrice(99999999))") is None, "unknown items are not stored"
+    assert c.eval('(ns:ItemCost(2840))') <= 100
+    # gathered-only ignores the Auction House
+    c.slash("materials gathered")
+    cost, kind = c.eval('ns:ItemCost(2840)')
+    assert kind != "ah", kind
+    # no full scan twice within 15 minutes: falls back to the shopping scan
+    c.slash("materials ah")
+    c.run("MOCK.canQueryAll = false; MOCK.queries = {}")
+    c.slash("scan")
+    c.run("MOCK.advance(0.5)")
+    assert c.eval("#MOCK.queries") >= 1 and c.eval("MOCK.queries[1].all") is not True
+    no_errors(c)
+
+
+@test
+def scan_needs_the_auction_house():
+    c = Client()
+    c.clear_chat()
+    c.slash("scan")
+    assert any("open the Auction House" in strip_colors(m) for m in c.chat()), c.chat()
+
+
+@test
+def tooltip_line_on_reagents():
+    c = Client(skills=[("Jewelcrafting", 1, 75)])
+    item = c.eval('ns:GetPath("jewelcrafting").shopping[1].id')
+    c.run('GameTooltip:SetHyperlink("item:%d:0:0:0:0:0:0:0:0")' % item)
+    c.run('MOCK.run(GameTooltip, "OnTooltipSetItem")')     # fires twice in the real client too
+    lines = [strip_colors(l) for l in c.eval("GameTooltip._lines").values()]
+    hits = [l for l in lines if "Needed for your Jewelcrafting path" in l]
+    assert len(hits) == 1, lines
+    c.run('GameTooltip:SetHyperlink("item:6948:0:0:0:0:0:0:0:0")')   # Hearthstone: nothing
+    assert not [l for l in c.eval("GameTooltip._lines").values() if "Needed" in l]
+
+
+@test
+def tracker_follows_the_current_step():
+    c = Client(skills=[("Jewelcrafting", 1, 75)])
+    title, lines = c.eval("ns:TrackerLines()")
+    assert "Jewelcrafting 1/75 (x2)" in title, title
+    text = [strip_colors(l) for l in lines.values()]
+    assert text[0].startswith("Make "), text
+    assert "until" in text[1]
+    assert any("/" in l for l in text[2:]), text          # have / need per material
+    no_errors(c)
+
+
+@test
+def craft_view_modes_render():
+    c = Client(skills=[("Jewelcrafting", 120, 150)])
+    c.run('ns:OpenWindow("jewelcrafting")')
+    c.run('_v = ns:TabPane("jewelcrafting").view')
+    assert c.eval("_v.left:Count()") >= 1
+    assert c.eval("_v.right:Count()") >= 3
+    assert "Jewelcrafting" in c.eval("_v.title:GetText()")
+    for i in range(1, c.eval("#_v.buttons") + 1):
+        c.run('MOCK.run(_v.buttons[%d], "OnClick")' % i)
+        assert c.eval("_v.left:Count()") >= 1, c.eval("_v.mode")
+    # clicking a row selects it and shows its detail
+    c.run('_v.mode = "path"; _v:Refresh(); _v.left.data[2].onClick(_v.left.data[2])')
+    assert c.eval("_v.selected.path") == 2
+    no_errors(c)
+
+
+@test
+def path_to_chat_is_plain():
+    c = Client(skills=[("Jewelcrafting", 120, 150)])
+    c.clear_chat()
+    c.slash("path")
+    text = c.chat()
+    assert any("Jewelcrafting 120/150" in strip_colors(m) for m in text), text
+    for m in text:
+        stray = re.sub(r"\|c[0-9a-fA-F]{8}|\|r", "", m)
+        assert "|" not in stray, m
+    c.slash("path alch")
+    assert "do not have" in strip_colors(c.chat()[-1])
+
+
+# ---------------------------------------------------------------------------
+# phase 3: every crafting profession
+# ---------------------------------------------------------------------------
+
+CRAFT = ["Alchemy", "Blacksmithing", "Enchanting", "Engineering", "Inscription", "Jewelcrafting",
+         "Leatherworking", "Tailoring"]
+
+
+@test
+def every_crafting_profession_to_450():
+    report = []
+    for rate in (2, 1):
+        for name in CRAFT + ["Cooking", "First Aid"]:
+            key = name.lower().replace(" ", "")
+            c = Client(skills=[(name, 1, 75)] if name not in ("Cooking", "First Aid") else (),
+                       secondary=[(name, 1, 75)] if name in ("Cooking", "First Aid") else ())
+            c.slash("rate %d" % rate)
+            c.slash("target 450")
+            steps = path_steps(c, 'ns:GetPath("%s")' % key)
+            stuck = [s for s in steps if s["kind"] == "stuck"]
+            crafts = [s for s in steps if s["kind"] == "craft"]
+            assert crafts, name
+            # the first rank must always be possible from trainer recipes alone
+            assert not stuck or stuck[0]["frm"] >= 75, (name, stuck)
+            report.append("%s x%d: %d steps, %s" % (name, rate, len(steps),
+                          ("stuck at %d" % stuck[0]["frm"]) if stuck else "reaches %d" % c.eval("_p.to")))
+            no_errors(c)
+    print("      " + "\n      ".join(report))
+
+
+@test
+def all_professions_browser_previews():
+    c = Client(**JC_SKIN)
+    for i in range(1, c.eval("#ns.Professions") + 1):
+        key = c.eval("ns.Professions[%d].key" % i)
+        assert c.eval('ns:BrowseProfession("%s")' % key)
+        c.run("_v = ns:BrowserView()")
+        assert c.eval("_v:IsShown()"), key
+        assert c.eval("_v.left:Count()") >= 1, key
+    c.run('ns:BrowseProfession("alchemy")')
+    assert "preview" in strip_colors(c.eval("ns:BrowserView().title:GetText()"))
+    c.run('ns:BrowseProfession("jewelcrafting")')
+    assert "120 / 150" in strip_colors(c.eval("ns:BrowserView().title:GetText()"))
+    no_errors(c)
+
+
+# ---------------------------------------------------------------------------
+# phase 4: gathering
+# ---------------------------------------------------------------------------
+
+@test
+def skinning_skill_formula():
+    c = Client()
+    for lvl, skill in ((1, 1), (10, 1), (11, 10), (15, 50), (20, 100), (21, 105), (60, 300), (80, 400)):
+        assert c.eval("ns:SkinSkillFor(%d)" % lvl) == skill, lvl
+    for req, skill, colour in ((100, 99, "red"), (100, 100, "orange"), (100, 125, "yellow"),
+                               (100, 150, "green"), (100, 200, "grey")):
+        assert c.eval('ns:GatherColor(%d, %d)' % (req, skill)) == colour, (req, skill)
+
+
+@test
+def gathering_zones_rank_and_move_on():
+    c = Client(skills=[("Mining", 1, 75), ("Skinning", 1, 75)], level=10)
+    zones = c.eval('ns:RankZones("mining", 1)')
+    assert zones[1], "no mining zones at skill 1"
+    best = c.eval('ns.Zones[ns:RankZones("mining", 1)[1].zone].n')
+    assert best, best
+    # at 1 only Copper gives skill-ups; the best zone has copper
+    has_copper = c.eval("""(function()
+        local z = ns:RankZones("mining", 1)[1].zone
+        for _, n in ipairs(ns.Nodes.mining) do
+            if n.n == "Copper Vein" then for _, zc in ipairs(n.z) do if zc[1] == z then return true end end end
+        end return false end)()""")
+    assert has_copper
+    at = c.eval('(ns:MoveOnAt("mining", ns:RankZones("mining", 1)[1].zone, 1, 450))')
+    assert at and 1 < at <= 450, at
+    # herbalism and skinning rank too, and a high skill ranks higher-level zones
+    assert c.eval('#ns:RankZones("herbalism", 1)') > 0
+    low = c.eval('ns.Zones[ns:RankZones("skinning", 1)[1].zone].hi or 0')
+    high = c.eval('ns.Zones[ns:RankZones("skinning", 300)[1].zone].hi or 0')
+    assert high > low, (low, high)
+    no_errors(c)
+
+
+@test
+def gathering_views_and_tracker():
+    c = Client(skills=[("Mining", 50, 75), ("Skinning", 75, 75)], level=20)
+    for key in ("mining", "skinning"):
+        c.run('ns:OpenWindow("%s"); _v = ns:TabPane("%s").view' % (key, key))
+        assert c.eval("_v.left:Count()") >= 1, key
+        for i in range(1, c.eval("#_v.buttons") + 1):
+            c.run('MOCK.run(_v.buttons[%d], "OnClick")' % i)
+            assert c.eval("_v.left:Count()") >= 1, (key, c.eval("_v.mode"))
+    # at the cap, the view and tracker say to train
+    c.run('ns:SetChar("tracked", "skinning")')
+    title, lines = c.eval("ns:TrackerLines()")
+    assert "Train Journeyman" in strip_colors(lines[1]), [strip_colors(x) for x in lines.values()]
+    c.run('ns:SetChar("tracked", "mining")')
+    title, lines = c.eval("ns:TrackerLines()")
+    assert strip_colors(lines[1]).startswith("Go to "), [strip_colors(x) for x in lines.values()]
+    no_errors(c)
+
+
+# ---------------------------------------------------------------------------
+# phase 5: secondary professions
+# ---------------------------------------------------------------------------
+
+@test
+def fishing_model_and_view():
+    c = Client(secondary=[("Fishing", 40, 75), ("Cooking", 1, 75), ("First Aid", 1, 75)])
+    assert c.eval("ns:FishSkillUpChance(40)") == 1
+    assert abs(c.eval("ns:FishSkillUpChance(300)") - 0.1) < 1e-9
+    assert c.eval("ns:FishCatchChance(100, 50)") == 1
+    assert abs(c.eval("ns:FishCatchChance(50, 100)") - 0.25) < 1e-9
+    c.run('ns:OpenWindow("fishing"); _v = ns:TabPane("fishing").view')
+    assert c.eval("_v.left:Count()") > 10
+    assert "Skill-up chance per catch: 100%" in strip_colors(c.eval("_v.summary:GetText()"))
+    for key in ("cooking", "firstaid"):
+        assert c.eval('#ns:GetPath("%s").steps' % key) >= 1, key
+    no_errors(c)
+
+
+# ---------------------------------------------------------------------------
+# phase 6: extras
+# ---------------------------------------------------------------------------
+
+@test
+def extras_data_and_views():
+    c = Client(skills=[("Jewelcrafting", 350, 375), ("Enchanting", 1, 75)])
+    assert c.eval("#ns.Prospect[2770]") >= 3, "copper ore prospects to at least three gems"
+    assert c.eval("#ns.Mill[765]") >= 1, "Silverleaf mills to a pigment"
+    assert c.eval("#ns.Disenchant[10940]") >= 1, "Strange Dust has disenchant sources"
+    assert c.eval("#ns.JCDaily.rewards") >= 5
+    assert c.eval("#ns.JCDaily.quests") >= 1
+    c.run('ns:OpenWindow("jewelcrafting"); _v = ns:TabPane("jewelcrafting").view; _v.mode = "extras"; _v:Refresh()')
+    assert "Dalaran" in strip_colors(c.eval("_v.right.data[1].text"))
+    c.run('_v.selected.extras = 2770; _v:Refresh()')
+    assert c.eval("_v.right:Count()") >= 4
+    c.run('ns:OpenWindow("enchanting"); _v = ns:TabPane("enchanting").view; _v.mode = "extras"; _v:Refresh()')
+    assert c.eval("_v.right:Count()") >= 2
+    no_errors(c)
+
+
+@test
+def every_path_computes_quickly():
+    import time as _t
+    c = Client(skills=[("Jewelcrafting", 1, 75), ("Tailoring", 1, 75)])
+    c.slash("target 450")
+    t0 = _t.time()
+    c.run('ns:InvalidatePaths(); ns:GetPath("jewelcrafting"); ns:GetPath("tailoring")')
+    dt = _t.time() - t0
+    assert dt < 5, "two full paths took %.1f s" % dt
+    print("      two paths 1-450: %.2f s in lupa" % dt)
 
 
 def main():

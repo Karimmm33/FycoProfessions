@@ -35,10 +35,14 @@ disposable.**
 
 ```powershell
 # 1. edit here, in D:\Projects\FycoProfessions
-# 2. check every Lua file, then run the automated suite (pip install lupa, once)
-python scripts\luacheck.py Core.lua Widgets.lua Data\Constants.lua Modules\Browser.lua Modules\Options.lua Modules\Tracker.lua Modules\Window.lua
-python tests\run_tests.py
-# 3. push it into the client and test in game, following docs\TESTING.md
+# 2. if the data changed, rebuild it (read its output)
+py -3.11 scripts\extract_refs.py "D:/Whitemane/Frostmourne/FrostmourneRebuffed/Data/rebuffed.mpq"  # only when the client changes
+py -3.11 scripts\build_data.py
+# 3. check every Lua file, then run the automated suite
+#    (lupa and mpyq are installed for Python 3.11 on this machine; plain `python` lacks lupa)
+py -3.11 scripts\luacheck.py Core.lua Widgets.lua Sources.lua Data\Constants.lua Data\Items.lua Data\Recipes.lua Data\World.lua Data\Extras.lua Modules\Browser.lua Modules\Engine.lua Modules\Gather.lua Modules\Options.lua Modules\Prices.lua Modules\Professions.lua Modules\Tooltip.lua Modules\Tracker.lua Modules\Views.lua Modules\Window.lua
+py -3.11 tests\run_tests.py
+# 4. push it into the client and test in game, following docs\TESTING.md
 .\scripts\deploy.ps1          # -WhatIf to preview
 #    then /reload in game
 ```

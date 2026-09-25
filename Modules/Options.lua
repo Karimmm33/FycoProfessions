@@ -248,7 +248,11 @@ local function BuildMain()
 	L:Note("Auto uses this character's faction. Saved per character.")
 	L:Dropdown("Materials", 150, UI.Materials)
 	L:Note("Gathered only leaves out recipes whose materials can only be "
-	    .. "bought from other players.")
+	    .. "bought from other players, and ignores Auction House prices.")
+	L:Check("Use recipes that only drop", "World drops and rare drops: you would have to find or buy them",
+		function() return ns:Get("guide", "drops") end,
+		function(v) ns:Set("guide", "drops", v) end)
+	L:Note("Off: paths use recipes you know, trainer, vendor and quest recipes.")
 
 	R:Title("Window")
 	R:Check("Minimap button", "Left-click opens FycoProfessions, right-click opens these settings",
@@ -267,6 +271,7 @@ local function BuildMain()
 	R:Title("Features")
 	local mods = {
 		{ "tracker", "Tracker - current step on screen" },
+		{ "tooltip", "Tooltips - 'needed for your path'" },
 	}
 	for i = 1, #mods do
 		local key = mods[i][1]

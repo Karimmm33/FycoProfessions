@@ -2,33 +2,23 @@
      The "All professions" tab: every profession in the game, whether this
      character has it or not, so you can look one up before learning it.
 
-     Left, the list. Right, what is known about the selected one. Later
-     phases fill the right side with the same guide a profession tab shows.  ]]
+     Left, the list. Right, the same guide a profession tab shows: from your
+     own skill for a profession you have, and as a preview from skill 1 for
+     one you do not.                                                        ]]
 
 local _, ns = ...
-local M = ns:Module("browser", 20)
+local M = ns:Module("browser", 25)
 
 local ROW_H = 26
-local LIST_W = 200
+local LIST_W = 150
+local VIEW_W, VIEW_H = 664 - LIST_W - 10, 438
 
-local KIND_TEXT = {
-	craft = "Crafting - a step-by-step recipe path",
-	gather = "Gathering - the best zones and nodes for your skill",
-	fish = "Fishing - zones by required skill",
-}
-
-local pane, rows, detail
+local pane, rows
+local views = {}
 local selected = "jewelcrafting"
 
-local function RankLines()
-	local lines = { "|cffffd200Trainer ranks|r |cff808080(stock 3.3.5 levels; this realm may differ)|r" }
-	local lo = 1
-	for i = 1, #ns.Ranks do
-		local r = ns.Ranks[i]
-		lines[#lines + 1] = string.format("  %s: %d to %d, needs level %d", r.name, lo, r.cap, r.level)
-		lo = r.cap
-	end
-	return lines
+local function State()
+	return ns:ProfessionState(selected) or { skill = 1, max = 75, preview = true }
 end
 
 local function Refresh()
@@ -36,19 +26,21 @@ local function Refresh()
 	for i = 1, #rows do
 		local p = ns.Professions[i]
 		if p.key == selected then rows[i]:LockHighlight() else rows[i]:UnlockHighlight() end
+		rows[i].label:SetText(p.name .. (ns:HasProfession(p.key) and " |cff60ff60*|r" or ""))
 	end
-
 	local p = ns.ProfessionByKey[selected]
-	local lines = {
-		"|cffffffff" .. p.name .. "|r" .. (p.secondary and "  |cff808080(secondary)|r" or ""),
-		KIND_TEXT[p.kind],
-		"",
-	}
-	local ranks = RankLines()
-	for i = 1, #ranks do lines[#lines + 1] = ranks[i] end
-	lines[#lines + 1] = ""
-	lines[#lines + 1] = "|cff808080The step-by-step guide for this profession is not built yet.|r"
-	detail:SetText(table.concat(lines, "\n"))
+	for kind, v in pairs(views) do
+		if kind ~= p.kind then v:Hide() end
+	end
+	local v = views[p.kind]
+	if not v then
+		v = ns:CreateView(pane, p.kind, VIEW_W, VIEW_H, function() return selected end, State)
+		v:ClearAllPoints()
+		v:SetPoint("TOPLEFT", LIST_W + 10, 0)
+		views[p.kind] = v
+	end
+	v:Show()
+	v:Refresh()
 end
 
 local function BuildPane(p)
@@ -68,9 +60,9 @@ local function BuildPane(p)
 		icon:SetPoint("LEFT", 2, 0)
 		icon:SetTexture(prof.icon)
 
-		local fs = b:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-		fs:SetPoint("LEFT", icon, "RIGHT", 6, 0)
-		fs:SetText(prof.name)
+		b.label = b:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+		b.label:SetPoint("LEFT", icon, "RIGHT", 6, 0)
+		b.label:SetText(prof.name)
 
 		b:SetScript("OnClick", function()
 			selected = prof.key
@@ -78,12 +70,11 @@ local function BuildPane(p)
 		end)
 		rows[i] = b
 	end
-
-	detail = p:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-	detail:SetPoint("TOPLEFT", LIST_W + 20, 0)
-	detail:SetPoint("RIGHT", p, "RIGHT", 0, 0)
-	detail:SetJustifyH("LEFT")
-	detail:SetJustifyV("TOP")
+	local note = p:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+	note:SetPoint("TOPLEFT", 4, -(#ns.Professions * ROW_H + 6))
+	note:SetWidth(LIST_W)
+	note:SetJustifyH("LEFT")
+	note:SetText("|cff60ff60*|r = you have it")
 end
 
 --- Select a profession in the browser (used by tests and other tabs).
@@ -99,6 +90,13 @@ function ns:BrowserSelected()
 	return selected
 end
 
+--- The view the browser is showing (for tests).
+function ns:BrowserView()
+	return views[ns.ProfessionByKey[selected].kind]
+end
+
 ns:AddTab("all", "All professions", 100, BuildPane, Refresh)
 
-function M:OnLoad() end
+function M:OnLoad()
+	ns:Subscribe("ProfessionsChanged", function() if pane and pane:IsVisible() then Refresh() end end)
+end

@@ -34,7 +34,7 @@ with Write/Edit; if a scripted patch is needed, write the script to a file.
 ## HARD RULE 3 — check every file before saying it is done
 
 ```
-python scripts/luacheck.py Core.lua Widgets.lua Data/*.lua Modules/*.lua
+py -3.11 scripts/luacheck.py Core.lua Widgets.lua Sources.lua Data/*.lua Modules/*.lua
 ```
 
 ASCII only (the client renders anything else as mojibake), valid escapes,
@@ -45,8 +45,8 @@ Then run the automated suite, which loads the real addon in Lua 5.1 against
 a mock client (`tests/wowmock.lua`) and drives it:
 
 ```
-pip install lupa        # once
-python tests/run_tests.py
+py -3.11 -m pip install lupa    # once (already done on Karim's machine)
+py -3.11 tests/run_tests.py
 ```
 
 Every feature gets tests there, and every in-game check goes in
@@ -101,10 +101,51 @@ shopping list is computed from `ns:Rate()`, and nothing may hard-code 2.
   professions the character does not have.
 - the tracker — guide modules push `ns:SetTrackerLines(title, lines)`.
 
+The modules, in load order:
+
+| Module | Owns |
+|---|---|
+| `Window` | the window shell, tabs, minimap button |
+| `Professions` | reading skills, known recipes, reputations, the bank; one tab per profession |
+| `Engine` | recipe colours and chances, which recipes you can use, material costs, the path solver, shopping lists |
+| `Prices` | Auction House scans and saved prices |
+| `Views` | `ns:CreateView`, the crafting view (Path, Shopping list, Extras), trainers, `/fprof path` |
+| `Gather` | gathering and fishing models and views |
+| `Browser` | the All professions tab |
+| `Tracker` | the on-screen step frame; asks `ns.TrackerProviders[kind]` for its lines |
+| `Tooltip` | "Needed for your ... path" lines |
+| `Options` | the settings pages |
+
+Messages: `ProfessionsChanged` (skills, known recipes, reputation),
+`PricesChanged`, `GuideChanged` (every path is invalid; views and the
+tracker redraw), `BagsChanged`.
+
 Adding a feature module: new file in `Modules/`, add it to
 `FycoProfessions.toc`, add its switch to `moduleDefaults` in `Core.lua` and
 the Features list in `Options.lua`, register a tab and/or a settings page,
 document it in `README.md`.
+
+## The data pipeline
+
+```
+rebuffed.mpq ── scripts/extract_refs.py ──> scripts/ref/*.json ──┐
+AzerothCore world DB (.cache/acore/) ────────────────────────────┼─ scripts/build_data.py ─> Data/Recipes.lua,
+                                                                  ┘   Data/Items.lua, Data/World.lua, Data/Extras.lua
+```
+
+- Spell.dbc columns were verified against known spells (see the constants
+  at the top of `extract_refs.py`). SkillLineAbility gives orange-from (7),
+  grey (10) and yellow (11); green is (yellow + grey) / 2, as the server does.
+- SkillLineAbility's min skill is 1 for most learned recipes; the build
+  raises it to the trainer's or recipe item's required skill.
+- AzerothCore moved most trainers to `trainer` / `trainer_spell` /
+  `creature_default_trainer`, listing "teach" spells; `teaches.json` maps
+  each to the recipe or rank it grants. `npc_trainer` is still read too.
+- Spawn rows mostly have no zone; zones and map coordinates come from the
+  spawn position and the realm's WorldMapArea bounds. AreaTable's faction
+  group marks each side's home zones.
+- Generated files wrap every table in its own function (Lua 5.1 constant
+  limit), each starting with `;` so Lua does not read it as a call.
 
 ## 3.3.5a facts that matter here
 
