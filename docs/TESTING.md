@@ -65,6 +65,7 @@ tell me what the game shows and I will correct the data.
 
 | ID | How | Expected |
 |---|---|---|
+| C0 | Open every FycoProfessions settings page (main, **Tracker**, **Auction House**). | Nothing is cut off on the right: every checkbox label, dropdown arrow, slider and button sits inside the grey area with room to spare, and everything on the right column can be clicked. (auto) |
 | C1 | `/fprof options`. | *Interface → AddOns → FycoProfessions* opens. Left: **Leveling guide** with four dropdowns (Skill points per skill-up, Guides stop at, Faction, Materials), each with a grey note, and a **Use recipes that only drop** checkbox. Right: **Window**, **Features** (Tracker, Tooltips), **About the data**. Nothing runs past the bottom; the page scrolls if it is long. |
 | C2 | Open **Skill points per skill-up**. | `x1 (stock)` and `x2`; `x2` ticked. |
 | C3 | Pick `x1`, then open the Jewelcrafting tab. | The window's guide line says `x1`, and the path has about twice as many crafts. Set it back to `x2`: the counts halve again. (auto) |
@@ -218,7 +219,7 @@ tell me what the game shows and I will correct the data.
 ## Automated tests
 
 `py -3.11 tests/run_tests.py` (needs `pip install lupa`) loads the real addon,
-with all its generated data, into Lua 5.1 against the mock client. 44 tests,
+with all its generated data, into Lua 5.1 against the mock client. 45 tests,
 among them:
 
 | Test | Covers |

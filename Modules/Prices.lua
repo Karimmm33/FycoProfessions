@@ -232,8 +232,8 @@ ns:RegisterOptions("Prices", "Auction House", 30, function(L, R)
 	L:Button("Forget saved prices", function() ns:ForgetPrices() end)
 
 	R:Title("Status")
-	local status = R:Note("")
-	status:SetWidth(230)
+	-- the note is sized to the column by Column:Note; room for two lines
+	local status = R:Note("No prices saved yet for this realm and faction.")
 	local col = R
 	col.panel.widgets[#col.panel.widgets + 1] = { Refresh = function()
 		local n, age = ns:PriceCount()
