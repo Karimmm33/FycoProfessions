@@ -859,12 +859,10 @@ ASHENVALE = 331
 def in_ashenvale(skill=100, extra=""):
     """A skinner standing in Ashenvale with the world map closed."""
     c = Client(skills=[("Skinning", skill, 150)], level=30, setup=extra or None)
-    wid = c.eval("(function() for w, z in pairs(ns.MapToZone) do if z == %d then return w end end end)()" % ASHENVALE)
-    assert wid, "Ashenvale has no WorldMapArea id"
-    c.run("MOCK.playerMapArea = %d; MOCK.mapArea = nil" % wid)
+    c.run('MOCK.playerMapFile = "Ashenvale"; MOCK.mapFile = nil')
     c.run('MOCK.advance(2.5)')          # the zone check runs every 2 s
     assert c.eval("ns:PlayerZone()") == ASHENVALE
-    return c, wid
+    return c, "Ashenvale"
 
 
 def pin_names(c, zone=ASHENVALE):
@@ -907,8 +905,8 @@ def pins_follow_skill_level_range_and_hand_picks():
 
 @test
 def pins_on_the_world_map():
-    c, wid = in_ashenvale(skill=100)
-    c.run("MOCK.mapArea = %d; WorldMapFrame:Show()" % wid)
+    c, mapfile = in_ashenvale(skill=100)
+    c.run('MOCK.mapFile = "%s"; WorldMapFrame:Show()' % mapfile)
     n = c.eval("ns:WorldPinCount()")
     assert n > 0, "no pins drawn on the world map"
     assert n == min(800, c.eval("#ns:PinsFor(%d)" % ASHENVALE))
@@ -925,12 +923,45 @@ def pins_on_the_world_map():
         x, y = (float(v) for v in pair.split(","))
         assert 0 <= x <= 1002 and -668 <= y <= 0, pair
     # another zone on the map: its own pins; a continent: none
-    c.run('MOCK.mapArea = 13; MOCK.fire("WORLD_MAP_UPDATE")')
+    c.run('MOCK.mapFile = "Tanaris"; MOCK.fire("WORLD_MAP_UPDATE")')
+    tanaris = c.eval("ns:WorldPinCount()")
+    assert tanaris == min(800, c.eval("#ns:PinsFor(440)")), tanaris
+    c.run('MOCK.mapFile = "Kalimdor"; MOCK.fire("WORLD_MAP_UPDATE")')
     assert c.eval("ns:WorldPinCount()") == 0
     c.slash("pins world")
-    c.run('MOCK.mapArea = %d; MOCK.fire("WORLD_MAP_UPDATE")' % wid)
+    c.run('MOCK.mapFile = "%s"; MOCK.fire("WORLD_MAP_UPDATE")' % mapfile)
     assert c.eval("ns:WorldPinCount()") == 0, "world pins still drawn after switching them off"
     no_errors(c)
+
+
+@test
+def pins_in_tanaris_hand_picked_and_auto():
+    # the case reported from game: a skinner in Tanaris, pins on, nothing shown
+    c = Client(skills=[("Skinning", 225, 225)], level=45)
+    c.run('MOCK.playerMapFile = "Tanaris"; MOCK.mapFile = nil; MOCK.advance(2.5)')
+    assert c.eval("ns:PlayerZone()") == 440
+    assert c.eval("#ns:PinsFor(440)") > 0, "no automatic pins in Tanaris at skinning 225"
+    mob = c.eval("ns.SkinSpawns[440][1].n")
+    c.run('ns:Set("pins", "auto", false); ns:TogglePin("skinning", "%s")' % mob)
+    c.run('_p = ns:PinsFor(440)[1]; MOCK.mapX, MOCK.mapY = _p.x, _p.y; MOCK.advance(0.3)')
+    assert c.eval("ns:MinimapPinCount()") >= 1
+    c.run('MOCK.mapFile = "Tanaris"; WorldMapFrame:Show()')
+    assert c.eval("ns:WorldPinCount()") == c.eval("#ns:PinsFor(440)")
+    # the diagnostic prints what the game reports
+    c.run("WorldMapFrame:Hide()")
+    c.clear_chat()
+    c.slash("pins debug")
+    text = " ".join(strip_colors(m) for m in c.chat())
+    assert "map file Tanaris" in text and "Tanaris" in text and "pins here:" in text, text
+    no_errors(c)
+
+
+@test
+def player_zone_falls_back_to_its_name():
+    # a map the data does not know by name: the zone text still finds it
+    c = Client(skills=[("Skinning", 100, 150)])
+    c.run('MOCK.playerMapFile = "SomethingNew"; MOCK.zone = "Ashenvale"; MOCK.advance(2.5)')
+    assert c.eval("ns:PlayerZone()") == ASHENVALE
 
 
 @test

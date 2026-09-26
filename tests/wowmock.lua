@@ -411,15 +411,18 @@ function UnitRace() return MOCK.race[1], MOCK.race[2] end
 function UnitLevel() return MOCK.level end
 function GetPlayerMapPosition() return MOCK.mapX or 0.5, MOCK.mapY or 0.5 end
 
--- the world map: MOCK.mapArea is the WorldMapArea id shown (and, when the
--- map is closed, the one SetMapToCurrentZone picks: MOCK.playerMapArea)
-MOCK.playerMapArea, MOCK.facing, MOCK.cvars, MOCK.zoom = 43, 0, { rotateMinimap = "0" }, 0
+-- the world map: MOCK.mapFile is the map shown ("Ashenvale"; nil for a
+-- continent), and SetMapToCurrentZone picks MOCK.playerMapFile. The numeric
+-- map id deliberately matches nothing in the data: in game it did not, and
+-- the addon must find the zone by the map's name.
+MOCK.playerMapFile, MOCK.facing, MOCK.cvars, MOCK.zoom = "Ashenvale", 0, { rotateMinimap = "0" }, 0
 WorldMapFrame = newRegion("Frame", "WorldMapFrame", UIParent)
 WorldMapFrame._shown = false
 WorldMapButton = newRegion("Frame", "WorldMapButton", WorldMapFrame)
 WorldMapButton._w, WorldMapButton._h = 1002, 668
-function GetCurrentMapAreaID() return MOCK.mapArea or MOCK.playerMapArea end
-function SetMapToCurrentZone() MOCK.mapArea = MOCK.playerMapArea end
+function GetMapInfo() return MOCK.mapFile end
+function GetCurrentMapAreaID() return 900000 end
+function SetMapToCurrentZone() MOCK.mapFile = MOCK.playerMapFile end
 function GetCurrentMapDungeonLevel() return 0 end
 function GetPlayerFacing() return MOCK.facing end
 function GetCVar(k) return MOCK.cvars[k] end

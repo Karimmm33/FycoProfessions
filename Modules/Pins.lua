@@ -210,10 +210,26 @@ local function HideWorld(from)
 end
 
 --- The zone the world map is showing, or nil (continent, instance level).
+--- The map's internal name (GetMapInfo, e.g. "Tanaris") is the key that
+--- works; the numeric map id is only a fallback -- in game it did not match
+--- the WorldMapArea ids, and no pin was ever drawn.
 local function MapZone()
-	if not GetCurrentMapAreaID then return nil end
 	if GetCurrentMapDungeonLevel and (GetCurrentMapDungeonLevel() or 0) > 0 then return nil end
-	return ns.MapToZone[GetCurrentMapAreaID()]
+	local file = GetMapInfo and GetMapInfo()
+	if file and ns.MapFileToZone[file] then return ns.MapFileToZone[file] end
+	local id = GetCurrentMapAreaID and GetCurrentMapAreaID()
+	return id and ns.MapToZone[id] or nil
+end
+
+local zoneByName
+
+--- The zone you stand in, by its name, when the map cannot say.
+local function ZoneByName()
+	if not zoneByName then
+		zoneByName = {}
+		for id, z in pairs(ns.Zones) do zoneByName[z.n] = id end
+	end
+	return zoneByName[GetRealZoneText() or ""]
 end
 
 function ns:UpdateWorldPins()
@@ -333,7 +349,26 @@ end
 local function FindPlayerZone()
 	if WorldMapFrame and WorldMapFrame:IsShown() then return end
 	if SetMapToCurrentZone then SetMapToCurrentZone() end
-	playerZone = MapZone()
+	playerZone = MapZone() or ZoneByName()
+end
+
+--- "/fprof pins debug": what the game reports and what the pins make of it.
+function ns:PinsDebug()
+	FindPlayerZone()
+	local file = GetMapInfo and GetMapInfo()
+	local id = GetCurrentMapAreaID and GetCurrentMapAreaID()
+	local px, py = GetPlayerMapPosition("player")
+	ns:Print("pins debug:")
+	ns:Print(string.format("  map file %s, map id %s, zone text %s", tostring(file), tostring(id),
+		tostring(GetRealZoneText())))
+	local z = playerZone and ns.Zones[playerZone]
+	ns:Print(string.format("  your zone: %s (%s), position %.3f, %.3f", tostring(playerZone),
+		z and z.n or "not found", px or 0, py or 0))
+	ns:Print(string.format("  pins here: %d, on minimap now: %d, on world map: %d",
+		#ns:PinsFor(playerZone), miniShown, worldShown))
+	ns:Print(string.format("  switches: module %s, world %s, minimap %s, auto %s",
+		tostring(ns:Enabled("pins")), tostring(ns:Get("pins", "world")),
+		tostring(ns:Get("pins", "minimap")), tostring(ns:Get("pins", "auto"))))
 end
 
 function ns:PlayerZone()
@@ -375,9 +410,11 @@ function ns:PinsCommand(rest)
 	elseif sub == "clear" then
 		ns:ClearPins()
 		ns:Print("your hand-picked pins are cleared")
+	elseif sub == "debug" then
+		ns:PinsDebug()
 	else
 		ns:Print("usage: " .. Y .. "/fprof pins|r (on or off), " .. Y .. "world|r, " .. Y .. "minimap|r, "
-			.. Y .. "skin <min> [max]|r, " .. Y .. "skin auto|r, " .. Y .. "clear|r")
+			.. Y .. "skin <min> [max]|r, " .. Y .. "skin auto|r, " .. Y .. "clear|r, " .. Y .. "debug|r")
 	end
 end
 

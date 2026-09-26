@@ -113,11 +113,13 @@ def main():
         costs[r[0]] = {"honor": r[1], "arena": r[2], "items": items, "rating": r[14]}
     out["extcost"] = costs
 
-    # WorldMapArea.dbc: 0 id, 1 map, 2 area, 4 left, 5 right, 6 top, 7 bottom
-    # (floats; left/right bound world Y, top/bottom bound world X)
-    recs, _ = dbc("WorldMapArea.dbc")
-    out["wma"] = {r[0]: {"map": r[1], "area": r[2], "left": as_float(r[4]), "right": as_float(r[5]),
-                         "top": as_float(r[6]), "bottom": as_float(r[7])} for r in recs if r[2]}
+    # WorldMapArea.dbc: 0 id, 1 map, 2 area, 3 internal name (what the
+    # client's GetMapInfo() returns, e.g. "Tanaris"), 4 left, 5 right,
+    # 6 top, 7 bottom (floats; left/right bound world Y, top/bottom world X)
+    recs, s = dbc("WorldMapArea.dbc")
+    out["wma"] = {r[0]: {"map": r[1], "area": r[2], "file": s(r[3]), "left": as_float(r[4]),
+                         "right": as_float(r[5]), "top": as_float(r[6]), "bottom": as_float(r[7])}
+                  for r in recs if r[2]}
 
     # Lock.dbc: 0 id, 1-8 type (2 = needs a skill), 9-16 index (lock type:
     # 2 herbalism, 3 mining), 17-24 required skill

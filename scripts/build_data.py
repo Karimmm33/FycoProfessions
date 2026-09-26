@@ -863,8 +863,11 @@ def main():
                     # the zone map's size in yards, for minimap pins
                     "w": round(box["left"] - box["right"], 1) if box else None,
                     "h": round(box["top"] - box["bottom"], 1) if box else None}
-    # GetCurrentMapAreaID() returns a WorldMapArea id; pins need the zone
+    # The pins need to know which zone a map shows. GetMapInfo() gives the
+    # map's internal name ("Tanaris") -- the reliable key. GetCurrentMapAreaID()
+    # is kept as a second key, but what it returns in 3.3.5a is not certain.
     map_to_zone = {wid: w["area"] for wid, w in wma.items() if w["area"] in zones}
+    file_to_zone = {w["file"]: w["area"] for w in wma.values() if w["area"] in zones and w.get("file")}
 
     # --- write ----------------------------------------------------------------
     write(os.path.join(DATA, "Recipes.lua"), lua_file(
@@ -893,7 +896,8 @@ def main():
         "Spawns are the stock AzerothCore ones; zones are resolved from spawn\n"
         "positions with this realm's WorldMapArea bounds.",
         [("ns.Continents", CONTINENTS), ("ns.Zones", zones), ("ns.Nodes", nodes),
-         ("ns.SkinZones", skinning), ("ns.FishingZones", fishing), ("ns.MapToZone", map_to_zone)]))
+         ("ns.SkinZones", skinning), ("ns.FishingZones", fishing), ("ns.MapToZone", map_to_zone),
+         ("ns.MapFileToZone", file_to_zone)]))
 
     write(os.path.join(DATA, "Spawns.lua"), lua_file(
         "FycoProfessions - Data/Spawns.lua\n"

@@ -235,6 +235,7 @@ Best done on your skinner in Ashenvale (or any zone with mobs you can skin).
 | O10 | *Settings → FycoProfessions → Map pins*. | Checkboxes: world map, minimap, automatic, mining, herbs, skinnable mobs; **Clear hand-picked pins**; sliders for the skinning level range and the two pin sizes. Every change shows on the maps at once. Nothing cut off on the right (C0). |
 | O11 | `/fprof pins world`, `/fprof pins minimap`, then `/fprof pins` (and the **Map pins** checkbox under **Features**). | Each switches its pins off (and on again the second time). (auto) |
 | O12 | Enter a dungeon. | No pins on the minimap inside. (auto) |
+| O14 | `/fprof pins debug` (map closed). | Chat: `map file Tanaris` (your zone's map name), `your zone: 440 (Tanaris)`, your position, how many pins there are here and how many are drawn, and the switches. If pins still do not show, paste me these lines. (auto) |
 | O13 | **realm** Walk to a few pins. | A mob or node of that kind spawns at or near each (mobs wander, and a node may be taken or not spawned right now). |
 
 ---

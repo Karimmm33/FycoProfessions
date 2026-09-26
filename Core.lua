@@ -337,7 +337,7 @@ local function Help()
 	ns:Print("  " .. Y .. "/fprof path [profession]|r - the next steps, in chat")
 	ns:Print("  " .. Y .. "/fprof scan [list]|r - scan Auction House prices (Auction House open)")
 	ns:Print("  " .. Y .. "/fprof tracker [show, hide, lock, unlock, reset]|r - the step tracker")
-	ns:Print("  " .. Y .. "/fprof pins [world, minimap, skin <min> <max>, skin auto, clear]|r - map pins")
+	ns:Print("  " .. Y .. "/fprof pins [world, minimap, skin <min> <max>, skin auto, clear, debug]|r - map pins")
 	ns:Print("  " .. Y .. "/fprof minimap|r    - show or hide the minimap button")
 	ns:Print("  " .. Y .. "/fprof debug|r      - toggle debug output")
 end
