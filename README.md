@@ -18,6 +18,7 @@ It is a sister of [FycoPvE](https://github.com/Karimmm33/FycoPvE) and
 | **Shopping list** | Every material for the whole path, minus what is in your bags and your bank. |
 | **Prices** | Vendor prices, your own Auction House scans (one click on the Auction House window), or the cost of crafting a material yourself. Anything else is a marked estimate. |
 | **Gathering** | Mining, Herbalism, Skinning: the best zones for your skill (not the other faction's home zones), which nodes or mobs still give skill-ups, and the skill at which to move on. |
+| **Map pins** | Nodes and skinnable mobs on your world map (works with Mapster) and minimap, coloured by difficulty. Automatically: what still gives you skill-ups where you are. Or pin exactly the mobs or nodes you click in the Skinning, Mining or Herbalism tab, or every skinnable mob in a level range. Each part can be switched off. |
 | **Fishing** | Every fishing zone by required skill, your catch chance there, and how many catches a skill-up takes. |
 | **Extras** | Jewelcrafting: prospecting results and the Dalaran daily tokens. Inscription: milling. Enchanting: where each material disenchants from. Mining: smelting. |
 | **All professions** | Browse any profession, even one you do not have, as a preview from skill 1. |
@@ -50,6 +51,7 @@ Everything is under *Interface → AddOns → FycoProfessions*, or the window's
 | Materials | Buy or gather, or gathered materials only. |
 | Use recipes that only drop | Off by default. |
 | Tracker | Show, lock, scale, reset position, which profession to follow. |
+| Map pins | World map, minimap, automatic, mining / herbs / skinnable mobs, skinning level range, pin sizes, clear hand-picked pins. |
 | Auction House | Full scan, shopping-list scan, forget prices. |
 | Window | Minimap button, login greeting, window scale; Tracker and Tooltips on or off. |
 
@@ -69,6 +71,7 @@ Everything below is also in the settings UI.
 | `/fprof path [profession]` | the next steps, in chat |
 | `/fprof scan [list]` | scan Auction House prices (with the Auction House open) |
 | `/fprof tracker [show, hide, lock, unlock, reset]` | the step tracker |
+| `/fprof pins` | map pins on or off; `world` / `minimap` toggle each map, `skin 20 25` pins skinnable mobs of levels 20-25, `skin auto` goes back to automatic, `clear` removes your hand-picked pins |
 | `/fprof minimap` | show or hide the minimap button |
 | `/fprof debug` | toggle debug output |
 

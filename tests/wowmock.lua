@@ -411,6 +411,24 @@ function UnitRace() return MOCK.race[1], MOCK.race[2] end
 function UnitLevel() return MOCK.level end
 function GetPlayerMapPosition() return MOCK.mapX or 0.5, MOCK.mapY or 0.5 end
 
+-- the world map: MOCK.mapArea is the WorldMapArea id shown (and, when the
+-- map is closed, the one SetMapToCurrentZone picks: MOCK.playerMapArea)
+MOCK.playerMapArea, MOCK.facing, MOCK.cvars, MOCK.zoom = 43, 0, { rotateMinimap = "0" }, 0
+WorldMapFrame = newRegion("Frame", "WorldMapFrame", UIParent)
+WorldMapFrame._shown = false
+WorldMapButton = newRegion("Frame", "WorldMapButton", WorldMapFrame)
+WorldMapButton._w, WorldMapButton._h = 1002, 668
+function GetCurrentMapAreaID() return MOCK.mapArea or MOCK.playerMapArea end
+function SetMapToCurrentZone() MOCK.mapArea = MOCK.playerMapArea end
+function GetCurrentMapDungeonLevel() return 0 end
+function GetPlayerFacing() return MOCK.facing end
+function GetCVar(k) return MOCK.cvars[k] end
+function IsIndoors() return false end
+Minimap._w, Minimap._h = 140, 140
+function Minimap:GetZoom() return MOCK.zoom end
+function Frame:GetFrameLevel() return self._level or 1 end
+function Frame:SetFrameLevel(l) self._level = l end
+
 -- the Auction House: MOCK.auctions = { {id, count, buyout}, ... }
 MOCK.auctions, MOCK.queries = {}, {}
 MOCK.canQuery, MOCK.canQueryAll = true, true

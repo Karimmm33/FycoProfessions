@@ -250,6 +250,14 @@ class Geo:
         my = (best["top"] - x) / (best["top"] - best["bottom"]) * 100
         return best["area"], round(mx, 1), round(my, 1)
 
+    def box(self, area):
+        """The WorldMapArea bounds of a zone's own map, or None."""
+        for boxes in self.by_map.values():
+            for w in boxes:
+                if w["area"] == area:
+                    return w
+        return None
+
     def is_world(self, map_id):
         m = self.maps.get(map_id)
         return m is not None and m["type"] == 0
@@ -281,6 +289,14 @@ def side_of_races(races):
         if not races & ALLIANCE_RACES:
             return "H"
     return None
+
+
+def pack(mx, my):
+    """A zone map position (0-100 each, 0.1 precision) as one integer:
+    x * 10 * 1001 + y * 10. Unpacked in Modules/Pins.lua."""
+    x = max(0, min(1000, int(round(mx * 10))))
+    y = max(0, min(1000, int(round(my * 10))))
+    return x * 1001 + y
 
 
 def pct(values, p):
@@ -491,14 +507,16 @@ def main():
             lk = locks[r["Data0"]]
             node_tpl[r["entry"]] = ("mining" if lk["type"] == 3 else "herbalism", lk["skill"], r["name"], r["Data1"])
     node_zone = {}     # (kind, name) -> {zone: count}
+    node_pos = {}      # (kind, name) -> {zone: set of packed map positions}
     for r in read_table("gameobject"):
         n = node_tpl.get(r["id"])
         if not n or not geo.is_world(r["map"]):
             continue
-        zone, _, _ = geo.locate(r["map"], r["position_x"], r["position_y"])
+        zone, mx, my = geo.locate(r["map"], r["position_x"], r["position_y"])
         if zone:
             d = node_zone.setdefault((n[0], n[2]), {})
             d[zone] = d.get(zone, 0) + 1
+            node_pos.setdefault((n[0], n[2]), {}).setdefault(zone, set()).add(pack(mx, my))
             used_zones.add(zone)
 
     gathered = {}      # item -> set of tags
@@ -521,19 +539,26 @@ def main():
         nodes[kind].append(node_seen[key])
     for kind in nodes:
         nodes[kind].sort(key=lambda n: (n["sk"], n["n"]))
+    node_spawns = {"mining": {}, "herbalism": {}}
+    for (kind, name), node in node_seen.items():
+        node_spawns[kind][name] = {z: sorted(p) for z, p in node_pos[(kind, name)].items()}
 
     # --- skinning -----------------------------------------------------------
     skin_loot = loot_by_entry("skinning_loot_template")
     skin_zone = {}     # zone -> {entry: count}
+    skin_pos = {}      # zone -> {name: {lo, hi, positions}}
     for e, t in ctpl.items():
         if not t["skinloot"] or t["type_flags"] & SKIN_NEEDS_OTHER or t["rank"] not in (0, 4):
             continue
         for r in expand(skin_loot.get(t["skinloot"], [])):
             gathered.setdefault(r["Item"], set()).add("s")
-        for zone, *_ in cspawns.get(e, []):
+        for zone, mx, my, _ in cspawns.get(e, []):
             d = skin_zone.setdefault(zone, {})
             d[e] = d.get(e, 0) + 1
             used_zones.add(zone)
+            m = skin_pos.setdefault(zone, {}).setdefault(t["name"], {"lo": t["minlevel"], "hi": t["maxlevel"], "p": set()})
+            m["lo"], m["hi"] = min(m["lo"], t["minlevel"]), max(m["hi"], t["maxlevel"])
+            m["p"].add(pack(mx, my))
     skinning = {}
     for zone, ents in skin_zone.items():
         mobs = {}
@@ -543,6 +568,12 @@ def main():
             m["lo"], m["hi"] = min(m["lo"], t["minlevel"]), max(m["hi"], t["maxlevel"])
             m["c"] += cnt
         skinning[zone] = sorted(mobs.values(), key=lambda m: (-m["c"], m["n"]))[:12]
+
+    # every spawn point, for the map pins (Modules/Pins.lua)
+    skin_spawns = {}
+    for zone, mobs in skin_pos.items():
+        skin_spawns[zone] = [{"n": name, "lo": m["lo"], "hi": m["hi"], "p": sorted(m["p"])}
+                             for name, m in sorted(mobs.items())]
 
     # --- fishing ------------------------------------------------------------
     fish_loot = loot_by_entry("fishing_loot_template")
@@ -825,9 +856,15 @@ def main():
         if not a:
             continue
         lv = zone_levels.get(z, [])
+        box = geo.box(z)
         zones[z] = {"n": a["name"], "c": a["map"], "lo": int(pct(lv, 0.1)) if lv else None,
                     "hi": int(pct(lv, 0.9)) if lv else None,
-                    "side": {2: "A", 4: "H"}.get(a.get("side"))}
+                    "side": {2: "A", 4: "H"}.get(a.get("side")),
+                    # the zone map's size in yards, for minimap pins
+                    "w": round(box["left"] - box["right"], 1) if box else None,
+                    "h": round(box["top"] - box["bottom"], 1) if box else None}
+    # GetCurrentMapAreaID() returns a WorldMapArea id; pins need the zone
+    map_to_zone = {wid: w["area"] for wid, w in wma.items() if w["area"] in zones}
 
     # --- write ----------------------------------------------------------------
     write(os.path.join(DATA, "Recipes.lua"), lua_file(
@@ -856,7 +893,16 @@ def main():
         "Spawns are the stock AzerothCore ones; zones are resolved from spawn\n"
         "positions with this realm's WorldMapArea bounds.",
         [("ns.Continents", CONTINENTS), ("ns.Zones", zones), ("ns.Nodes", nodes),
-         ("ns.SkinZones", skinning), ("ns.FishingZones", fishing)]))
+         ("ns.SkinZones", skinning), ("ns.FishingZones", fishing), ("ns.MapToZone", map_to_zone)]))
+
+    write(os.path.join(DATA, "Spawns.lua"), lua_file(
+        "FycoProfessions - Data/Spawns.lua\n"
+        "Every gathering node and skinnable mob spawn point, for the map pins.\n"
+        "Positions are packed zone map coordinates: x * 10 * 1001 + y * 10\n"
+        "(0-100 each, 0.1 precision). Stock AzerothCore spawns; mobs wander.",
+        [("ns.NodeSpawns", {}), ("ns.SkinSpawns", {})]
+        + [("ns.NodeSpawns.%s" % k, v) for k, v in sorted(node_spawns.items())]
+        + [("ns.SkinSpawns[%d]" % z, v) for z, v in sorted(skin_spawns.items())]))
 
     write(os.path.join(DATA, "Extras.lua"), lua_file(
         "FycoProfessions - Data/Extras.lua\n"

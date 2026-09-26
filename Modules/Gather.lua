@@ -189,14 +189,29 @@ local function Picker(v, key)
 	end
 end
 
+--- A row click that pins or unpins something on the maps.
+local function PinToggle(v, kind, name)
+	return function()
+		if ns.TogglePin then ns:TogglePin(kind, name) end
+		v:Refresh()
+	end
+end
+
+local function PinMark(kind, name)
+	return (ns.IsPinned and ns:IsPinned(kind, name)) and (BLUE .. " [pinned]|r") or ""
+end
+
+local PIN_TIP = { "Click to pin or unpin it on your world map and minimap." }
+
 local function ZoneDetail(v, prof, zone, skill, cap)
 	local rows = { { text = GOLD .. ZoneLabel(zone) .. "|r" } }
 	if prof.key == "skinning" then
 		for _, mob in ipairs(ns.SkinZones[zone] or {}) do
 			local col = MobColor(mob, skill)
 			rows[#rows + 1] = { text = UI.Colored(col, mob.n) .. GREY .. " level " .. mob.lo
-				.. (mob.hi ~= mob.lo and ("-" .. mob.hi) or "") .. "|r",
-				right = "skill " .. ns:SkinSkillFor(mob.hi) .. ", " .. mob.c .. "x" }
+				.. (mob.hi ~= mob.lo and ("-" .. mob.hi) or "") .. "|r" .. PinMark("skinning", mob.n),
+				right = "skill " .. ns:SkinSkillFor(mob.hi) .. ", " .. mob.c .. "x",
+				onClick = PinToggle(v, "skinning", mob.n), tip = PIN_TIP }
 		end
 	else
 		local list = {}
@@ -204,8 +219,10 @@ local function ZoneDetail(v, prof, zone, skill, cap)
 		table.sort(list, function(a, b) return a.node.sk < b.node.sk end)
 		for _, e in ipairs(list) do
 			local col = ns:GatherColor(e.node.sk, skill)
-			rows[#rows + 1] = { text = UI.Colored(col, e.node.n), right = "skill " .. math.max(1, e.node.sk) .. ", " .. e.count .. "x",
-				icon = e.node.items[1] and UI.ItemIcon(e.node.items[1]), item = e.node.items[1] }
+			rows[#rows + 1] = { text = UI.Colored(col, e.node.n) .. PinMark(prof.key, e.node.n),
+				right = "skill " .. math.max(1, e.node.sk) .. ", " .. e.count .. "x",
+				icon = e.node.items[1] and UI.ItemIcon(e.node.items[1]),
+				onClick = PinToggle(v, prof.key, e.node.n), tip = PIN_TIP }
 		end
 	end
 	local at, nextZone = ns:MoveOnAt(prof.key, zone, skill, cap)
@@ -247,8 +264,9 @@ local function ZonesMode(v, prof, state)
 		local at = ns:MoveOnAt(prof.key, best.zone, skill, state.max)
 		if at then s = s .. ". Move on at " .. at end
 	end
-	v.summary:SetText(s .. ".\n" .. GREY .. "Score = skill-ups on offer (spawns x chance). Orange 100%, yellow 75%, "
-		.. "green 25% per " .. (prof.key == "skinning" and "corpse" or "node") .. ", x" .. ns:Rate() .. " points each.|r")
+	v.summary:SetText(s .. ".\n" .. GREY .. "Orange 100%, yellow 75%, green 25% a "
+		.. (prof.key == "skinning" and "corpse" or "node") .. ", x" .. ns:Rate() .. " points. "
+		.. "Click one on the right to pin it on your maps.|r")
 end
 
 local function ListMode(v, prof, state)
@@ -278,7 +296,8 @@ local function ListMode(v, prof, state)
 	local detail = {}
 	for _, node in ipairs(ns.Nodes[prof.key] or {}) do
 		if node.n == sel then
-			detail[#detail + 1] = { text = GOLD .. node.n .. "|r", right = "skill " .. math.max(1, node.sk) }
+			detail[#detail + 1] = { text = GOLD .. node.n .. "|r" .. PinMark(prof.key, node.n),
+				right = "skill " .. math.max(1, node.sk), onClick = PinToggle(v, prof.key, node.n), tip = PIN_TIP }
 			for _, id in ipairs(node.items) do
 				detail[#detail + 1] = { text = UI.ItemName(id), icon = UI.ItemIcon(id), item = id }
 			end

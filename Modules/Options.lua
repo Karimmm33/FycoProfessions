@@ -313,6 +313,7 @@ local function BuildMain()
 	local mods = {
 		{ "tracker", "Tracker - current step on screen" },
 		{ "tooltip", "Tooltips - 'needed for your path'" },
+		{ "pins", "Map pins - nodes and mobs" },
 	}
 	for i = 1, #mods do
 		local key = mods[i][1]

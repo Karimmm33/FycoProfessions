@@ -849,6 +849,149 @@ def extras_data_and_views():
     no_errors(c)
 
 
+# ---------------------------------------------------------------------------
+# map pins
+# ---------------------------------------------------------------------------
+
+ASHENVALE = 331
+
+
+def in_ashenvale(skill=100, extra=""):
+    """A skinner standing in Ashenvale with the world map closed."""
+    c = Client(skills=[("Skinning", skill, 150)], level=30, setup=extra or None)
+    wid = c.eval("(function() for w, z in pairs(ns.MapToZone) do if z == %d then return w end end end)()" % ASHENVALE)
+    assert wid, "Ashenvale has no WorldMapArea id"
+    c.run("MOCK.playerMapArea = %d; MOCK.mapArea = nil" % wid)
+    c.run('MOCK.advance(2.5)')          # the zone check runs every 2 s
+    assert c.eval("ns:PlayerZone()") == ASHENVALE
+    return c, wid
+
+
+def pin_names(c, zone=ASHENVALE):
+    c.run("_pins = ns:PinsFor(%d)" % zone)
+    return {c.eval("_pins[%d].name" % i) for i in range(1, c.eval("#_pins") + 1)}
+
+
+@test
+def pins_follow_skill_level_range_and_hand_picks():
+    c, _ = in_ashenvale(skill=100)
+    names = pin_names(c)
+    assert names, "no automatic skinning pins in Ashenvale at skill 100"
+    colours = {c.eval("_pins[%d].color" % i) for i in range(1, c.eval("#_pins") + 1)}
+    assert colours <= {"orange", "yellow", "green"}, colours
+    # every pin is a position on the zone map
+    for i in range(1, min(50, c.eval("#_pins")) + 1):
+        x, y = c.eval("_pins[%d].x" % i), c.eval("_pins[%d].y" % i)
+        assert 0 <= x <= 1 and 0 <= y <= 1, (x, y)
+    # at skill 1 nothing there can be skinned: no automatic pins
+    c1, _ = in_ashenvale(skill=1)
+    assert not pin_names(c1)
+    # a level range pins exactly the mobs of those levels
+    c1.slash("pins skin 20 22")
+    ranged = pin_names(c1)
+    assert ranged, "no mobs of level 20-22 in Ashenvale"
+    for mob in c1.eval("ns.SkinSpawns[%d]" % ASHENVALE).values():
+        overlaps = mob["hi"] >= 20 and mob["lo"] <= 22
+        assert (mob["n"] in ranged) == overlaps, mob["n"]
+    c1.slash("pins skin auto")
+    assert not pin_names(c1)
+    # a hand-picked mob shows even with automatic pins off
+    first = c1.eval("ns.SkinSpawns[%d][1].n" % ASHENVALE)
+    c1.run('ns:Set("pins", "auto", false)')
+    assert c1.eval('ns:TogglePin("skinning", "%s")' % first)
+    assert pin_names(c1) == {first}
+    c1.slash("pins clear")
+    assert not pin_names(c1)
+    no_errors(c1)
+
+
+@test
+def pins_on_the_world_map():
+    c, wid = in_ashenvale(skill=100)
+    c.run("MOCK.mapArea = %d; WorldMapFrame:Show()" % wid)
+    n = c.eval("ns:WorldPinCount()")
+    assert n > 0, "no pins drawn on the world map"
+    assert n == min(800, c.eval("#ns:PinsFor(%d)" % ASHENVALE))
+    # anchored inside the map canvas
+    pts = c.eval("""(function()
+        local out = {}
+        for _, f in ipairs(MOCK.frames) do
+            if f._parent == WorldMapButton and f._shown and f.data then
+                local p = f._points[#f._points]
+                out[#out + 1] = p[4] .. "," .. p[5]
+            end
+        end return table.concat(out, ";") end)()""")
+    for pair in pts.split(";")[:100]:
+        x, y = (float(v) for v in pair.split(","))
+        assert 0 <= x <= 1002 and -668 <= y <= 0, pair
+    # another zone on the map: its own pins; a continent: none
+    c.run('MOCK.mapArea = 13; MOCK.fire("WORLD_MAP_UPDATE")')
+    assert c.eval("ns:WorldPinCount()") == 0
+    c.slash("pins world")
+    c.run('MOCK.mapArea = %d; MOCK.fire("WORLD_MAP_UPDATE")' % wid)
+    assert c.eval("ns:WorldPinCount()") == 0, "world pins still drawn after switching them off"
+    no_errors(c)
+
+
+@test
+def pins_on_the_minimap():
+    c, _ = in_ashenvale(skill=100)
+    c.run("_p = ns:PinsFor(%d)[1]" % ASHENVALE)
+    # stand on a spawn point: it is drawn at the minimap's centre
+    c.run("MOCK.mapX, MOCK.mapY = _p.x, _p.y; MOCK.advance(0.3)")
+    assert c.eval("ns:MinimapPinCount()") >= 1
+    centre = c.eval("""(function()
+        for _, f in ipairs(MOCK.frames) do
+            if f._parent == Minimap and f._shown and f.data == _p then
+                local pt = f._points[#f._points]
+                return math.abs(pt[4]) + math.abs(pt[5])
+            end
+        end end)()""")
+    assert centre is not None and centre < 0.01, centre
+    # nothing drawn outside the minimap's circle
+    c.run("MOCK.zoom = 5; MOCK.advance(0.3)")
+    far = c.eval("""(function()
+        local worst = 0
+        for _, f in ipairs(MOCK.frames) do
+            if f._parent == Minimap and f._shown and f.data then
+                local pt = f._points[#f._points]
+                worst = math.max(worst, math.sqrt(pt[4] ^ 2 + pt[5] ^ 2))
+            end
+        end return worst end)()""")
+    assert far <= 70, far
+    # a rotating minimap works too
+    c.run('MOCK.cvars.rotateMinimap = "1"; MOCK.facing = 1.2; MOCK.advance(0.3)')
+    assert c.eval("ns:MinimapPinCount()") >= 1
+    # in an instance (no map position) nothing is drawn
+    c.run("MOCK.mapX, MOCK.mapY = 0, 0; MOCK.advance(0.3)")
+    assert c.eval("ns:MinimapPinCount()") == 0
+    # switched off
+    c.run("MOCK.mapX, MOCK.mapY = _p.x, _p.y")
+    c.slash("pins minimap")
+    c.run("MOCK.advance(0.3)")
+    assert c.eval("ns:MinimapPinCount()") == 0
+    c.slash("pins minimap")
+    c.slash("pins")                     # the master switch
+    c.run("MOCK.advance(0.3)")
+    assert c.eval("ns:MinimapPinCount()") == 0
+    no_errors(c)
+
+
+@test
+def pin_from_the_skinning_tab():
+    c, _ = in_ashenvale(skill=100)
+    c.run('ns:OpenWindow("skinning"); _v = ns:TabPane("skinning").view')
+    c.run('_v.selected.zones = %d; _v:Refresh()' % ASHENVALE)
+    row = c.eval("_v.right.data[2]")
+    name_text = strip_colors(row["text"])
+    c.run("_v.right.data[2].onClick(_v.right.data[2])")
+    assert "[pinned]" in strip_colors(c.eval("_v.right.data[2].text")), name_text
+    assert c.eval('next(FycoProfessionsCharDB.pinned) ~= nil')
+    c.run("_v.right.data[2].onClick(_v.right.data[2])")
+    assert "[pinned]" not in strip_colors(c.eval("_v.right.data[2].text"))
+    no_errors(c)
+
+
 @test
 def every_path_computes_quickly():
     import time as _t

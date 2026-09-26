@@ -155,6 +155,16 @@ ns.Defaults = {
 		materials = "ah",     -- "ah" buy or gather, "gathered" gathered materials only
 		drops = false,        -- also use recipes that only drop (or come from the Auction House)
 	},
+	pins = {
+		world = true,         -- pins on the world map
+		minimap = true,       -- pins on the minimap
+		auto = true,          -- pin what still gives skill-ups
+		mining = true, herbalism = true, skinning = true,
+		skinMin = 0,          -- skinnable mob level range; both 0 = automatic
+		skinMax = 0,
+		worldSize = 14,
+		miniSize = 12,
+	},
 	tracker = {
 		shown = true,
 		locked = false,
@@ -169,7 +179,7 @@ ns.CharDefaults = {
 
 -- module switches, written one key at a time so a module added later turns
 -- itself on without resetting what has been saved
-local moduleDefaults = { tracker = true, tooltip = true }
+local moduleDefaults = { tracker = true, tooltip = true, pins = true }
 
 function ns:Get(section, key)
 	local s = FycoProfessionsDB and FycoProfessionsDB[section]
@@ -327,6 +337,7 @@ local function Help()
 	ns:Print("  " .. Y .. "/fprof path [profession]|r - the next steps, in chat")
 	ns:Print("  " .. Y .. "/fprof scan [list]|r - scan Auction House prices (Auction House open)")
 	ns:Print("  " .. Y .. "/fprof tracker [show, hide, lock, unlock, reset]|r - the step tracker")
+	ns:Print("  " .. Y .. "/fprof pins [world, minimap, skin <min> <max>, skin auto, clear]|r - map pins")
 	ns:Print("  " .. Y .. "/fprof minimap|r    - show or hide the minimap button")
 	ns:Print("  " .. Y .. "/fprof debug|r      - toggle debug output")
 end
@@ -386,6 +397,9 @@ SlashCmdList.FYCOPROF = function(input)
 		elseif not ns:ScanAll() and ns:AuctionOpen() then
 			ns:ScanShopping()
 		end
+
+	elseif cmd == "pins" then
+		if ns.PinsCommand then ns:PinsCommand(rest) end
 
 	elseif cmd == "tracker" then
 		if not ns.TrackerCommand then

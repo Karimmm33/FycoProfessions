@@ -119,6 +119,7 @@ The modules, in load order:
 | `Browser` | the All professions tab |
 | `Tracker` | the on-screen step frame; asks `ns.TrackerProviders[kind]` for its lines |
 | `Tooltip` | "Needed for your ... path" lines |
+| `Pins` | world map and minimap pins for nodes and skinnable mobs (`Data/Spawns.lua`, packed positions x * 10 * 1001 + y * 10) |
 | `Options` | the settings pages |
 
 Messages: `ProfessionsChanged` (skills, known recipes, reputation),

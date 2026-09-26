@@ -1,8 +1,9 @@
 # FycoProfessions in-game testing sheet
 
-> **Status (0.9.0): every phase is built and passes the automated suite. Nothing
-> has been tested in game yet.** This sheet covers all of it, in the order the
-> phases were built.
+> **Status (0.10.0): every phase is built and passes the automated suite. In
+> game, only the settings width fix (C0) is confirmed so far; everything else,
+> including the new map pins (section O), still needs testing.** This sheet
+> covers all of it, in the order it was built.
 
 Work through the sections in order. For each test, do exactly what the **How**
 column says, compare with **Expected**, and report back by ID, for example:
@@ -45,7 +46,7 @@ tell me what the game shows and I will correct the data.
 
 | ID | How | Expected |
 |---|---|---|
-| A1 | Log in and look at chat. | One line: `FycoProfessions v0.9.0 - x2, target: your rank's cap, <your faction>. /fprof to open.` (auto) |
+| A1 | Log in and look at chat. | One line: `FycoProfessions v0.10.0 - x2, target: your rank's cap, <your faction>. /fprof to open.` (auto) |
 | A2 | Look at the edge of the minimap. | A round button with a note icon, separate from FycoPvE's book button. |
 | A3 | Type `/fprof help`. | A list of twelve commands, with no red text. (auto) |
 | A4 | Type `/reload`. | The same greeting again, and no errors. |
@@ -54,7 +55,7 @@ tell me what the game shows and I will correct the data.
 
 | ID | How | Expected |
 |---|---|---|
-| B1 | Type `/fprof`. | A window titled **FycoProfessions v0.9.0**, grey line under it `Guide: x2, target: your rank's cap, <faction>`, a **Settings** button top-right. Tab buttons: one per profession you have (for example **Jewelcrafting**, **Skinning**, **Cooking**, **First Aid**, **Fishing**) and **All professions** last. No tab for a profession you do not have. (auto) |
+| B1 | Type `/fprof`. | A window titled **FycoProfessions v0.10.0**, grey line under it `Guide: x2, target: your rank's cap, <faction>`, a **Settings** button top-right. Tab buttons: one per profession you have (for example **Jewelcrafting**, **Skinning**, **Cooking**, **First Aid**, **Fishing**) and **All professions** last. No tab for a profession you do not have. (auto) |
 | B2 | Drag the window by its title area, close it with X, then `/fprof` again. | It reopens where you left it. |
 | B3 | With the window open, press **Escape**. | It closes. |
 | B4 | Left-click the minimap button, then right-click it. | Left opens and closes the window. Right opens *Interface → AddOns → FycoProfessions*. |
@@ -216,10 +217,32 @@ tell me what the game shows and I will correct the data.
 
 ---
 
+## Map pins (0.10.0)
+
+Best done on your skinner in Ashenvale (or any zone with mobs you can skin).
+
+| ID | How | Expected |
+|---|---|---|
+| O1 | Open the world map (Mapster is fine) on the zone you are in. | Small icons with a coloured square behind them: pelts for skinnable mobs, ore or herb icons for nodes. Only things that still give you skill-ups: orange, yellow or green squares, nothing grey. (auto) |
+| O2 | Hover a pin. | Tooltip: the mob or node name, a coloured line `level 18-19, needs Skinning 80` (or `needs Mining 65`), `FycoProfessions - a spawn point`. |
+| O3 | Scale or move the map with Mapster, and switch Mapster's mini-map mode if you use it. | The pins stay on the same spots of the map. |
+| O4 | Look at another zone on the world map, then a continent. | The other zone shows its own pins; the continent shows none. (auto) |
+| O5 | Close the map and look at the minimap. | The same kind of pins around you, moving as you walk, hidden past the minimap's edge. Walk onto a pin: it sits under your arrow. (auto) |
+| O6 | Zoom the minimap in and out. | The pins spread out and draw together with the map; none leave the circle. (auto) |
+| O7 | If you use a rotating minimap (Interface → Display → Rotate Minimap): turn around. | The pins turn with the map and stay on the right spots. |
+| O8 | Skinning tab → **Best zones** → click your zone → click a mob on the right. | It gets a blue `[pinned]`; with **Automatic** off in the settings, only pinned mobs show. Click it again to unpin. (auto) |
+| O9 | `/fprof pins skin 20 22`. | The maps now show every skinnable mob of levels 20 to 22 in the zone, whatever your skill (red ones too). `/fprof pins skin auto` goes back. (auto) |
+| O10 | *Settings → FycoProfessions → Map pins*. | Checkboxes: world map, minimap, automatic, mining, herbs, skinnable mobs; **Clear hand-picked pins**; sliders for the skinning level range and the two pin sizes. Every change shows on the maps at once. Nothing cut off on the right (C0). |
+| O11 | `/fprof pins world`, `/fprof pins minimap`, then `/fprof pins` (and the **Map pins** checkbox under **Features**). | Each switches its pins off (and on again the second time). (auto) |
+| O12 | Enter a dungeon. | No pins on the minimap inside. (auto) |
+| O13 | **realm** Walk to a few pins. | A mob or node of that kind spawns at or near each (mobs wander, and a node may be taken or not spawned right now). |
+
+---
+
 ## Automated tests
 
 `py -3.11 tests/run_tests.py` (needs `pip install lupa`) loads the real addon,
-with all its generated data, into Lua 5.1 against the mock client. 45 tests,
+with all its generated data, into Lua 5.1 against the mock client. 49 tests,
 among them:
 
 | Test | Covers |
