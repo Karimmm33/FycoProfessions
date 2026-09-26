@@ -112,6 +112,7 @@ tell me what the game shows and I will correct the data.
 | ID | How | Expected |
 |---|---|---|
 | F1 | Open the character sheet's **Skills** tab and collapse **Professions** and **Secondary Skills**. `/reload`, `/fprof`. | The profession tabs are still all there, and the Skills tab headers are still collapsed afterwards. (auto) |
+| F0 | Log in (not `/reload`: a real login from character select), wait a few seconds, then `/fprof professions`. | Every profession you have with your real skill, e.g. `Skinning: 300 / 300`, and the window has a tab for each. Nothing reads 1/75 when it is higher. (auto) |
 | F2 | Open the Jewelcrafting tab. | Title `Jewelcrafting  <skill> / <max>  <rank>` with your real numbers. |
 | F3 | Open your Jewelcrafting window (the game's own), close it, look at the tab's grey second summary line. | Before: it asks you to open your Jewelcrafting window. After: it no longer does. Recipes you know now count even if they come from drops. (auto) |
 | F4 | Craft something that gives a skill-up. | Within a second the title, the path's first step and the tracker move up by 2. (auto) |

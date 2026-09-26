@@ -25,12 +25,16 @@ local haveList = {}
 --- Read every skill line. Collapsed headers hide their lines, so expand
 --- them, read, and collapse them again so the character sheet looks the
 --- same as before.
+local skillQuietUntil = 0      -- see ns:ScanProfessions
+
 local function ReadSkills()
 	local expanded = {}
 	local i = 1
 	while i <= (GetNumSkillLines() or 0) do
 		local name, isHeader, isExpanded = GetSkillLineInfo(i)
 		if isHeader and not isExpanded then
+			-- the event this fires can arrive at once, inside this call
+			skillQuietUntil = GetTime() + 0.5
 			ExpandSkillHeader(i)
 			expanded[#expanded + 1] = name
 		end
@@ -56,7 +60,7 @@ local function ReadSkills()
 			end
 		end
 	end
-	return found
+	return found, #expanded > 0
 end
 
 local function Signature(t)
@@ -69,14 +73,26 @@ end
 local lastSig
 
 -- Expanding a collapsed header makes the game fire SKILL_LINES_CHANGED.
--- Reacting to that would expand again, and loop every frame; so events for
--- half a second after our own read are ours and are ignored. A real
--- skill-up also arrives as CHAT_MSG_SKILL, which is never ignored.
-local skillQuietUntil = 0
+-- Reacting to that would expand again, and loop every frame; so for half a
+-- second after a read THAT EXPANDED SOMETHING, the event is ours and is
+-- ignored. Only then: an unconditional quiet period also swallowed the
+-- SKILL_LINES_CHANGED that brings the skills in just after login, and every
+-- profession read as unlearned (1/75) until the next skill-up.
+local lastScan = 0
+local scanning = false
 
 function ns:ScanProfessions()
-	local found = ReadSkills()
-	skillQuietUntil = GetTime() + 0.5
+	if scanning then return end   -- an event fired from inside our own read
+	scanning = true
+	local ok, found, expanded = pcall(ReadSkills)
+	scanning = false
+	if not ok then error(found) end
+	lastScan = GetTime()
+	if expanded then skillQuietUntil = GetTime() + 0.5 end
+	-- a read that found nothing while professions were known is the client
+	-- not having its skill list yet (loading screens), not you unlearning
+	-- everything: keep what we had until a read says otherwise
+	if next(found) == nil and next(have) ~= nil then return end
 	have = found
 	haveList = {}
 	for i = 1, #ns.Professions do
@@ -120,6 +136,11 @@ local function ReadTradeSkill()
 	if not prof then return end
 	-- a linked trade skill (someone else's) must not count as yours
 	if IsTradeSkillLinked and IsTradeSkillLinked() then return end
+	-- the window states your skill too: if it disagrees with what we have,
+	-- the skill list has changed under us -- read it again
+	local _, rank = GetTradeSkillLine()
+	local mine = have[prof.key]
+	if not mine or (rank and rank ~= mine.skill) then ns:ScanProfessions() end
 	local known = {}
 	local n = 0
 	for i = 1, (GetNumTradeSkills() or 0) do
@@ -302,10 +323,31 @@ function M:OnLoad()
 	ns:On("BAG_UPDATE", function() bagDirty = true end)
 	-- bag events come in bursts; tell everyone at most twice a second
 	local last = 0
+	local loginAt = GetTime()
 	ns:OnTick(function(now)
 		if bagDirty and now - last >= 0.5 then
 			bagDirty, last = false, now
 			if bankOpen then ReadBank() else ns:Fire("BagsChanged") end
 		end
+		-- no professions found yet: the skill list may simply not have
+		-- arrived. Look again every 3 s for the first minute after login,
+		-- then every 30 s (a character with no professions costs nothing much)
+		if next(have) == nil then
+			local every = (now - loginAt < 60) and 3 or 30
+			if now - lastScan >= every then ns:ScanProfessions() end
+		end
 	end)
+end
+
+--- "/fprof professions": what the skill list says, and what was detected.
+function ns:ProfessionsReport()
+	ns:ScanProfessions()
+	ns:Print("skill lines the game lists: " .. (GetNumSkillLines() or 0))
+	if #haveList == 0 then
+		ns:Print("  no profession detected. If you have some, open your character "
+			.. "sheet's Skills tab once, then try again, and tell me what it lists.")
+	end
+	for _, e in ipairs(haveList) do
+		ns:Print(string.format("  %s: %d / %d", e.prof.name, e.skill, e.max))
+	end
 end

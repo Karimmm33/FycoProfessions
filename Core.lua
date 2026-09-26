@@ -338,6 +338,7 @@ local function Help()
 	ns:Print("  " .. Y .. "/fprof scan [list]|r - scan Auction House prices (Auction House open)")
 	ns:Print("  " .. Y .. "/fprof tracker [show, hide, lock, unlock, reset]|r - the step tracker")
 	ns:Print("  " .. Y .. "/fprof pins [world, minimap, skin <min> <max>, skin auto, clear, debug]|r - map pins")
+	ns:Print("  " .. Y .. "/fprof professions|r - which professions and skill levels were detected")
 	ns:Print("  " .. Y .. "/fprof minimap|r    - show or hide the minimap button")
 	ns:Print("  " .. Y .. "/fprof debug|r      - toggle debug output")
 end
@@ -397,6 +398,9 @@ SlashCmdList.FYCOPROF = function(input)
 		elseif not ns:ScanAll() and ns:AuctionOpen() then
 			ns:ScanShopping()
 		end
+
+	elseif cmd == "professions" then
+		if ns.ProfessionsReport then ns:ProfessionsReport() end
 
 	elseif cmd == "pins" then
 		if ns.PinsCommand then ns:PinsCommand(rest) end

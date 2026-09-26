@@ -363,7 +363,10 @@ function ExpandSkillHeader(i) local l = SkillLines()[i]; if l then MOCK.collapse
 function CollapseSkillHeader(i) local l = SkillLines()[i]; if l then MOCK.collapsed[l[1]] = true; SkillEvent() end end
 
 -- the trade skill window: MOCK.trade = { line = "Jewelcrafting", recipes = { spellID, ... } }
-function GetTradeSkillLine() return MOCK.trade and MOCK.trade.line or "UNKNOWN" end
+function GetTradeSkillLine()
+	if not MOCK.trade then return "UNKNOWN", 0, 0 end
+	return MOCK.trade.line, MOCK.trade.rank, MOCK.trade.max
+end
 function IsTradeSkillLinked() return MOCK.trade and MOCK.trade.linked or false end
 function GetNumTradeSkills() return MOCK.trade and (#MOCK.trade.recipes + 1) or 0 end
 function GetTradeSkillInfo(i)

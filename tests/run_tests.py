@@ -422,6 +422,54 @@ def detects_professions_and_tabs():
 
 
 @test
+def skills_arriving_just_after_login_are_detected():
+    # reported from game: every profession showed 1/75. At login the client
+    # has no skill list yet; it arrives with SKILL_LINES_CHANGED straight
+    # after the addon's own login scan -- which a blanket loop guard ignored
+    c = Client()
+    assert not c.eval('ns:HasProfession("skinning")')
+    c.run('table.insert(MOCK.skills, {"Skinning", 300, 300}); '
+          'table.insert(MOCK.skills, {"Jewelcrafting", 350, 375}); MOCK.fire("SKILL_LINES_CHANGED")')
+    assert c.eval('ns:ProfessionState("skinning").skill') == 300
+    assert c.eval('ns:ProfessionState("jewelcrafting").max') == 375
+    assert not c.eval('ns:TabHidden("skinning")')
+    no_errors(c)
+
+
+@test
+def skills_arriving_without_an_event_are_found_by_the_retry():
+    c = Client()
+    c.run('table.insert(MOCK.skills, {"Skinning", 300, 300})')
+    c.run("MOCK.advance(3.5)")
+    assert c.eval('ns:ProfessionState("skinning").skill') == 300
+
+
+@test
+def a_loading_screen_read_does_not_forget_professions():
+    c = Client(**JC_SKIN)
+    c.run('MOCK.skills, MOCK.secondary = {}, {}; ns:ScanProfessions()')
+    assert c.eval('ns:ProfessionState("jewelcrafting").skill') == 120
+    # the trade skill window disagreeing with what we know forces a re-read
+    c.run('MOCK.skills = { {"Jewelcrafting", 130, 150} }; '
+          'MOCK.trade = { line = "Jewelcrafting", rank = 130, recipes = { 25255 } }; MOCK.fire("TRADE_SKILL_SHOW")')
+    assert c.eval('ns:ProfessionState("jewelcrafting").skill') == 130
+
+
+@test
+def professions_report_command():
+    c = Client(**JC_SKIN)
+    c.clear_chat()
+    c.slash("professions")
+    text = [strip_colors(m) for m in c.chat()]
+    assert any("Jewelcrafting: 120 / 150" in m for m in text), text
+    assert any("Skinning: 80 / 150" in m for m in text), text
+    c2 = Client()
+    c2.clear_chat()
+    c2.slash("professions")
+    assert any("no profession detected" in strip_colors(m) for m in c2.chat())
+
+
+@test
 def collapsed_headers_are_read_and_restored():
     c = Client(setup='MOCK.collapsed["Professions"] = true; MOCK.collapsed["Secondary Skills"] = true', **JC_SKIN)
     assert c.eval('ns:HasProfession("jewelcrafting")')

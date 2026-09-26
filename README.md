@@ -72,6 +72,7 @@ Everything below is also in the settings UI.
 | `/fprof scan [list]` | scan Auction House prices (with the Auction House open) |
 | `/fprof tracker [show, hide, lock, unlock, reset]` | the step tracker |
 | `/fprof pins` | map pins on or off; `world` / `minimap` toggle each map, `skin 20 25` pins skinnable mobs of levels 20-25, `skin auto` goes back to automatic, `clear` removes your hand-picked pins |
+| `/fprof professions` | which professions and skill levels were detected |
 | `/fprof minimap` | show or hide the minimap button |
 | `/fprof debug` | toggle debug output |
 
