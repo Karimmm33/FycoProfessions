@@ -229,6 +229,12 @@ local function StepRow(v, i, st, prof)
 	end
 end
 
+-- where a material's price comes from, shown next to it
+local PRICE_FROM = {
+	vendor = "vendor", ah = "AH (for 20)", crafted = "crafted", prospect = "via prospecting",
+	mill = "via milling", gather = "gathered (rough)", estimate = "ESTIMATE - scan the AH",
+}
+
 local function ThresholdText(rec)
 	return UI.Colored("orange", rec.o) .. "  " .. UI.Colored("yellow", rec.y) .. "  "
 		.. UI.Colored("green", rec.g) .. "  " .. UI.Colored("grey", rec.gr)
@@ -254,7 +260,11 @@ local function CraftDetail(v, prof, st, path)
 			icon = UI.ItemIcon(id), item = id, right = col .. haveN .. " / " .. total .. "|r",
 			tip = ns:ItemSourceLines(id),
 		})
-		if kind == "estimate" then rows[#rows].text = rows[#rows].text .. GREY .. " (price estimated)|r" end
+		local price = ns:ItemCost(id)
+		if price then
+			rows[#rows].text = rows[#rows].text .. GREY .. "  " .. UI.Money(price) .. " "
+				.. (PRICE_FROM[kind] or kind or "") .. "|r"
+		end
 	end
 	if rec.tl then rows[#rows + 1] = Row(GREY .. "Needs:|r " .. table.concat(rec.tl, ", ")) end
 	rows[#rows + 1] = Heading("How to learn it")

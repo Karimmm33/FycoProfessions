@@ -33,12 +33,77 @@ local function Age(t)
 	return math.floor(d / 86400) .. " days ago"
 end
 
---- Lowest unit buyout from your scans, and how old it is -- or nil.
-function ns:AHPrice(id)
+-- How many of an item a path step typically buys. Prices are what buying
+-- this many costs, not the single cheapest listing: in game, one cheap gem
+-- listed next to twenty dear ones made the path plan on the cheap price,
+-- pick the wrong recipe, and cost far more than it said.
+ns.PRICE_QTY = 20
+local SCARCE = 1.25          -- more than is listed: the rest at 25% over the dearest
+local LADDER_STEPS = 12      -- price levels kept per item
+
+--- Average unit buyout for buying `qty` (default ns.PRICE_QTY) from what
+--- your last scan saw; then how old that is, how many were listed, and the
+--- single cheapest unit price. nil when never scanned or older than a week.
+function ns:AHPrice(id, qty)
 	if not FycoProfessionsDB then return nil end
 	local p = Store()[id]
 	if not p or time() - p[2] > STALE then return nil end
-	return p[1], Age(p[2])
+	local ladder = p[3]
+	if not ladder then return p[1], Age(p[2]), nil, p[1] end   -- a scan from before 0.11
+	qty = math.max(1, qty or ns.PRICE_QTY)
+	local left, spent, supply, last = qty, 0, 0, p[1]
+	for i = 1, #ladder, 2 do
+		local unit, n = ladder[i], ladder[i + 1]
+		supply = supply + n
+		last = unit
+		if left > 0 then
+			local take = math.min(left, n)
+			spent = spent + take * unit
+			left = left - take
+		end
+	end
+	if left > 0 then spent = spent + left * last * SCARCE end
+	return spent / qty, Age(p[2]), supply, p[1]
+end
+
+--- "/fprof price <item>": exactly what the last scan saw for one item.
+function ns:PriceReport(text)
+	text = (text or ""):lower()
+	if text == "" then
+		ns:Print("usage: |cffffff00/fprof price <item name>|r")
+		return
+	end
+	local id, prefix
+	for iid, it in pairs(ns.Items) do
+		local n = it.n:lower()
+		if n == text then id = iid break end
+		if not prefix and n:find(text, 1, true) == 1 then prefix = iid end
+	end
+	id = id or prefix
+	if not id then
+		ns:Print("no material called " .. text .. " in FycoProfessions' data.")
+		return
+	end
+	local name = ns.Items[id].n
+	local p = FycoProfessionsDB and Store()[id]
+	if not p then
+		ns:Print(name .. ": not seen on the Auction House in your scans.")
+		return
+	end
+	local avg, age, supply = ns:AHPrice(id)
+	if not avg then
+		ns:Print(name .. ": the last price is over a week old; scan again.")
+		return
+	end
+	ns:Print(string.format("%s, scanned %s:", name, age))
+	local ladder = p[3] or { p[1], 0 }
+	local parts = {}
+	for i = 1, #ladder, 2 do
+		parts[#parts + 1] = (ladder[i + 1] > 0 and (ladder[i + 1] .. " at ") or "") .. ns.UI.Money(ladder[i])
+	end
+	ns:Print("  cheapest listings: " .. table.concat(parts, ", "))
+	ns:Print(string.format("  buying %d costs about %s each%s", ns.PRICE_QTY, ns.UI.Money(avg),
+		(supply and supply < ns.PRICE_QTY) and (" (only " .. supply .. " listed)") or ""))
 end
 
 function ns:PriceCount()
@@ -60,21 +125,51 @@ end
 -- reading results
 ----------------------------------------------------------------------
 
+--- One listing: its unit buyout and how many it holds. Blizzard's own
+--- AuctionUI in this client reads the same positions: count 3rd, buyout
+--- 9th (the 7th is the minimum bid, never used here). Bid-only auctions
+--- have no buyout and are skipped.
 local function Record(found, i)
 	local link = GetAuctionItemLink("list", i)
 	local id = link and tonumber(link:match("item:(%d+)"))
 	if not id or not ns.Items[id] then return end
 	local _, _, count, _, _, _, _, _, buyout = GetAuctionItemInfo("list", i)
 	if not buyout or buyout <= 0 then return end
-	local unit = buyout / math.max(1, count or 1)
-	if not found[id] or unit < found[id] then found[id] = unit end
+	count = math.max(1, count or 1)
+	local list = found[id] or {}
+	found[id] = list
+	list[#list + 1] = { buyout / count, count }
+end
+
+--- Listings -> { unit, qty, unit, qty, ... }, cheapest first, equal prices
+--- merged, at most LADDER_STEPS levels (the dear end is not needed).
+local function Ladder(listings)
+	table.sort(listings, function(a, b) return a[1] < b[1] end)
+	local out = {}
+	for _, l in ipairs(listings) do
+		local unit = math.floor(l[1] + 0.5)
+		local n = #out
+		if n >= 2 and out[n - 1] == unit then
+			out[n] = out[n] + l[2]
+		elseif n < LADDER_STEPS * 2 then
+			out[n + 1], out[n + 2] = unit, l[2]
+		end
+	end
+	return out
 end
 
 local function Finish()
 	local store, now, n = Store(), time(), 0
-	for id, unit in pairs(scan.found) do
-		store[id] = { math.floor(unit + 0.5), now }
+	for id, listings in pairs(scan.found) do
+		local ladder = Ladder(listings)
+		store[id] = { ladder[1], now, ladder }
 		n = n + 1
+	end
+	-- a full scan also knows what is NOT listed any more
+	if scan.mode == "all" and scan.complete then
+		for id in pairs(store) do
+			if not scan.found[id] then store[id] = nil end
+		end
 	end
 	ns:Print("Auction House scan done: " .. n .. " prices saved.")
 	scan = nil
@@ -145,7 +240,7 @@ function ns:ScanShopping()
 		ns:Print("nothing to scan: your paths need only vendor materials.")
 		return false
 	end
-	scan = { mode = "list", found = {}, queue = queue, pos = 0 }
+	scan = { mode = "list", found = {}, queue = queue, pos = 0, page = nil }
 	ns:Print("scanning " .. #queue .. " materials...")
 	return true
 end
@@ -164,7 +259,16 @@ local function OnListUpdate()
 		scan.i = 0
 	elseif scan.mode == "list" and scan.pending then
 		scan.pending = false
-		for i = 1, (GetNumAuctionItems("list") or 0) do Record(scan.found, i) end
+		local shown, total = GetNumAuctionItems("list")
+		for i = 1, (shown or 0) do Record(scan.found, i) end
+		-- a search returns 50 per page: read them all (up to 10 pages),
+		-- or the cheap listings on later pages are never seen
+		total = total or shown or 0
+		if (scan.page + 1) * 50 < total and scan.page < 9 then
+			scan.page = scan.page + 1
+		else
+			scan.page = nil
+		end
 	end
 end
 
@@ -180,17 +284,23 @@ local function Tick()
 		local last = math.min(scan.total, scan.i + CHUNK)
 		for i = scan.i + 1, last do Record(scan.found, i) end
 		scan.i = last
-		if last >= scan.total then Finish() end
+		if last >= scan.total then
+			scan.complete = true
+			Finish()
+		end
 	else
 		if scan.pending or not CanSendAuctionQuery() then return end
-		scan.pos = scan.pos + 1
+		if not scan.page then
+			scan.pos = scan.pos + 1
+			scan.page = 0
+		end
 		local q = scan.queue[scan.pos]
 		if not q then
 			Finish()
 			return
 		end
 		scan.pending = true
-		QueryAuctionItems(q.name, nil, nil, 0, 0, 0, 0, 0, 0, false)
+		QueryAuctionItems(q.name, nil, nil, 0, 0, 0, scan.page, 0, 0, false)
 	end
 end
 

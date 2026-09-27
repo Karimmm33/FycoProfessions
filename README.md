@@ -16,7 +16,7 @@ It is a sister of [FycoPvE](https://github.com/Karimmm33/FycoPvE) and
 | **Only recipes you can get** | Recipes you know, trainer recipes, vendor recipes for your faction (with cost and reputation), quest recipes, and, if you allow it, drops. Each step says how to learn its recipe. |
 | **Trainer checkpoints** | The path stops at 75, 150, 225, 300, 375 and 450 with the level each rank needs and the nearest trainers for your faction, with coordinates. |
 | **Shopping list** | Every material for the whole path, minus what is in your bags and your bank. |
-| **Prices** | Vendor prices, your own Auction House scans (one click on the Auction House window), or the cost of crafting a material yourself. Anything else is a marked estimate. |
+| **Prices** | Vendor prices, your own Auction House scans (one click on the Auction House window; buyouts only, priced for buying 20 so one cheap listing does not fool it), the cost of crafting a material yourself, or of prospecting ore / milling herbs for it. Anything else is a marked estimate. |
 | **Gathering** | Mining, Herbalism, Skinning: the best zones for your skill (not the other faction's home zones), which nodes or mobs still give skill-ups, and the skill at which to move on. |
 | **Map pins** | Nodes and skinnable mobs on your world map (works with Mapster) and minimap, coloured by difficulty. Automatically: what still gives you skill-ups where you are. Or pin exactly the mobs or nodes you click in the Skinning, Mining or Herbalism tab, or every skinnable mob in a level range. Each part can be switched off. |
 | **Fishing** | Every fishing zone by required skill, your catch chance there, and how many catches a skill-up takes. |
@@ -70,6 +70,7 @@ Everything below is also in the settings UI.
 | `/fprof drops` | also use recipes that only drop, on or off |
 | `/fprof path [profession]` | the next steps, in chat |
 | `/fprof scan [list]` | scan Auction House prices (with the Auction House open) |
+| `/fprof price <item>` | what your last scan saw for one material: every price level and how many are listed |
 | `/fprof tracker [show, hide, lock, unlock, reset]` | the step tracker |
 | `/fprof pins` | map pins on or off; `world` / `minimap` toggle each map, `skin 20 25` pins skinnable mobs of levels 20-25, `skin auto` goes back to automatic, `clear` removes your hand-picked pins |
 | `/fprof professions` | which professions and skill levels were detected |

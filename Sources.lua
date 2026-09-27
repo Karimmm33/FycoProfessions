@@ -124,9 +124,18 @@ function ns:ItemSourceLines(id)
 		end
 		lines[#lines + 1] = GOLD .. "Crafted:|r " .. table.concat(names, ", ")
 	end
-	local price, age = ns:AHPrice(id)
+	local price, age, supply, cheapest = ns:AHPrice(id)
 	if price then
-		lines[#lines + 1] = GOLD .. "Auction House:|r " .. ns.UI.Money(price) .. " each " .. GREY .. "(" .. age .. ")|r"
+		local t = GOLD .. "Auction House:|r " .. ns.UI.Money(price) .. " each for " .. ns.PRICE_QTY
+		if cheapest and cheapest < price then t = t .. ", cheapest " .. ns.UI.Money(cheapest) end
+		if supply then t = t .. ", " .. supply .. " listed" end
+		lines[#lines + 1] = t .. GREY .. " (buyouts, " .. age .. ")|r"
+	end
+	local src, kind, cost = ns:ConversionSource(id)
+	if src then
+		lines[#lines + 1] = GOLD .. (kind == "mill" and "Milling:|r " or "Prospecting:|r ") .. ItemName(src)
+			.. " works out at " .. ns.UI.Money(cost) .. " each" .. GREY
+			.. " (counting the other results at what they sell for)|r"
 	end
 	if #lines == 0 then lines[1] = GREY .. "No known source in the stock database.|r" end
 	return lines

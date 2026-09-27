@@ -2,7 +2,7 @@
 ## Title: FycoProfessions
 ## Notes: Profession leveling guide - cheapest path to your target skill, shopping list, trainers, gathering zones
 ## Author: Karim
-## Version: 0.10.0
+## Version: 0.11.0
 ## SavedVariables: FycoProfessionsDB
 ## SavedVariablesPerCharacter: FycoProfessionsCharDB
 ## X-Modules: Core, Window, Professions, Engine, Prices, Views, Gather, Browser, Tracker, Tooltip, Pins, Options

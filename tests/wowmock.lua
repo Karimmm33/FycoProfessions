@@ -439,10 +439,11 @@ function Frame:SetFrameLevel(l) self._level = l end
 MOCK.auctions, MOCK.queries = {}, {}
 MOCK.canQuery, MOCK.canQueryAll = true, true
 function CanSendAuctionQuery() return MOCK.canQuery, MOCK.canQueryAll end
-function QueryAuctionItems(name, _, _, _, _, _, _, _, _, getAll)
-	table.insert(MOCK.queries, { name = name, all = getAll })
+function QueryAuctionItems(name, _, _, _, _, _, page, _, _, getAll)
+	table.insert(MOCK.queries, { name = name, page = page, all = getAll })
 end
-function GetNumAuctionItems() return #MOCK.auctions end
+-- like the client: listings on this page, then the total the search found
+function GetNumAuctionItems() return #MOCK.auctions, MOCK.auctionTotal or #MOCK.auctions end
 function GetAuctionItemLink(_, i)
 	local a = MOCK.auctions[i]
 	return a and ("|cffffffff|Hitem:" .. a[1] .. ":0:0:0:0:0:0:0:0|h[x]|h|r") or nil

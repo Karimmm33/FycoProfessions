@@ -1,6 +1,6 @@
 # FycoProfessions in-game testing sheet
 
-> **Status (0.10.0): every phase is built and passes the automated suite. In
+> **Status (0.11.0): every phase is built and passes the automated suite. In
 > game, only the settings width fix (C0) is confirmed so far; everything else,
 > including the new map pins (section O), still needs testing.** This sheet
 > covers all of it, in the order it was built.
@@ -46,7 +46,7 @@ tell me what the game shows and I will correct the data.
 
 | ID | How | Expected |
 |---|---|---|
-| A1 | Log in and look at chat. | One line: `FycoProfessions v0.10.0 - x2, target: your rank's cap, <your faction>. /fprof to open.` (auto) |
+| A1 | Log in and look at chat. | One line: `FycoProfessions v0.11.0 - x2, target: your rank's cap, <your faction>. /fprof to open.` (auto) |
 | A2 | Look at the edge of the minimap. | A round button with a note icon, separate from FycoPvE's book button. |
 | A3 | Type `/fprof help`. | A list of twelve commands, with no red text. (auto) |
 | A4 | Type `/reload`. | The same greeting again, and no errors. |
@@ -55,7 +55,7 @@ tell me what the game shows and I will correct the data.
 
 | ID | How | Expected |
 |---|---|---|
-| B1 | Type `/fprof`. | A window titled **FycoProfessions v0.10.0**, grey line under it `Guide: x2, target: your rank's cap, <faction>`, a **Settings** button top-right. Tab buttons: one per profession you have (for example **Jewelcrafting**, **Skinning**, **Cooking**, **First Aid**, **Fishing**) and **All professions** last. No tab for a profession you do not have. (auto) |
+| B1 | Type `/fprof`. | A window titled **FycoProfessions v0.11.0**, grey line under it `Guide: x2, target: your rank's cap, <faction>`, a **Settings** button top-right. Tab buttons: one per profession you have (for example **Jewelcrafting**, **Skinning**, **Cooking**, **First Aid**, **Fishing**) and **All professions** last. No tab for a profession you do not have. (auto) |
 | B2 | Drag the window by its title area, close it with X, then `/fprof` again. | It reopens where you left it. |
 | B3 | With the window open, press **Escape**. | It closes. |
 | B4 | Left-click the minimap button, then right-click it. | Left opens and closes the window. Right opens *Interface → AddOns → FycoProfessions*. |
@@ -155,6 +155,9 @@ tell me what the game shows and I will correct the data.
 | I3 | Open the Jewelcrafting path. | Fewer `(price estimated)` marks; material details show `Auction House: <price> each (x min ago)`. The path may change to cheaper recipes. (auto) |
 | I4 | Click the button again at once. | `a full scan is allowed once every 15 minutes, and not yet.`, then `scanning N materials...` and it scans just your path's materials. (auto) |
 | I5 | *Settings → Auction House*. | The status line shows how many prices are saved and how old the newest is. **Forget saved prices** empties it. |
+| I7 | After a new full scan, `/fprof price deep peridot` (or any gem on your path). | `cheapest listings: 1 at 80s, 12 at 1g 20s, ...` (the real Auction House listings, buyout per item, cheapest first) and `buying 20 costs about X each`. Compare with the Auction House's own list: the numbers must match its buyouts, not its bids. (auto) |
+| I8 | Open a Jewelcrafting step and look at its materials. | Each shows its price and where it comes from: `AH (for 20)`, `vendor`, `via prospecting`, `crafted` or `ESTIMATE - scan the AH`. Hovering one shows the AH price for 20, the cheapest listing, how many are listed, and, for gems, `Prospecting: <ore> works out at ...` when buying ore and prospecting is cheaper. (auto) |
+| I9 | **realm** Pick the step's recipe and one from **Other recipes at ...** that you think is cheaper. Price both at the Auction House. | FycoProfessions' choice is the cheaper per skill point, or the difference is explained by I7/I8 (a price it has not scanned, or a gem it would prospect). If not, tell me both recipes and what you paid. |
 | I6 | Type `/fprof scan` away from the Auction House. | `open the Auction House first.` (auto) |
 
 ---

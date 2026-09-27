@@ -173,8 +173,88 @@ local function CraftCost(id, depth)
 	return best
 end
 
---- copper, kind ("vendor", "ah", "crafted", "gather", "estimate") -- or nil
---- when "gathered materials only" rules the item out.
+----------------------------------------------------------------------
+-- prospecting and milling as a source
+----------------------------------------------------------------------
+
+-- A jewelcrafter buys ore and prospects it; a scribe buys herbs and mills
+-- them. Five ore give a spread of gems, so one gem's share of the cost is
+-- split by value: effective gem price = its own price x (cost of 5 ore /
+-- what everything 5 ore yield would fetch). Cheaper than buying the gem
+-- exactly when prospecting pays. The by-products are valued at what you
+-- could sell them for, which the UI says.
+local CONVERSIONS = { { tbl = "Prospect", prof = "jewelcrafting", kind = "prospect" },
+                      { tbl = "Mill", prof = "inscription", kind = "mill" } }
+local fromSource      -- product -> { {src, rows, conversion}, ... }
+
+--- rows -> { {item, expected count per 5}, ... }. Rows with chance 0 share
+--- equally what the explicit chances leave (the build flattened groups).
+local function Yields(rows)
+	local explicit, zeros = 0, 0
+	for _, r in ipairs(rows) do
+		if r[2] > 0 then explicit = explicit + r[2] else zeros = zeros + 1 end
+	end
+	local share = zeros > 0 and math.max(0, 100 - explicit) / zeros or 0
+	local out = {}
+	for _, r in ipairs(rows) do
+		local pct = r[2] > 0 and r[2] or share
+		out[#out + 1] = { r[1], pct / 100 * (r[3] + r[4]) / 2 }
+	end
+	return out
+end
+
+local function FromSource()
+	if fromSource then return fromSource end
+	fromSource = {}
+	for _, conv in ipairs(CONVERSIONS) do
+		for src, rows in pairs(ns[conv.tbl] or {}) do
+			for _, r in ipairs(rows) do
+				fromSource[r[1]] = fromSource[r[1]] or {}
+				table.insert(fromSource[r[1]], { src, rows, conv })
+			end
+		end
+	end
+	return fromSource
+end
+
+--- A price anyone can pay for an item right now: vendor or Auction House.
+local function MarketPrice(id)
+	local it = ns.Items[id]
+	local ah = ns:AHPrice(id)
+	if it and it.v and (not ah or it.v < ah) then return it.v end
+	return ah
+end
+
+local function ConvertCost(id)
+	local own = ns:AHPrice(id)
+	if not own then return nil end
+	local best, bestKind, bestSrc
+	for _, e in ipairs(FromSource()[id] or {}) do
+		local src, rows, conv = e[1], e[2], e[3]
+		local srcPrice = ns:HasProfession(conv.prof) and MarketPrice(src)
+		if srcPrice then
+			local worth = 0
+			for _, y in ipairs(Yields(rows)) do
+				local p = MarketPrice(y[1])
+				if p then worth = worth + y[2] * p end
+			end
+			if worth > 0 then
+				local eff = own * (5 * srcPrice / worth)
+				if not best or eff < best then best, bestKind, bestSrc = eff, conv.kind, src end
+			end
+		end
+	end
+	return best, bestKind, bestSrc
+end
+
+--- Where the cheapest converted supply of a gem or pigment comes from.
+function ns:ConversionSource(id)
+	local cost, kind, src = ConvertCost(id)
+	return src, kind, cost
+end
+
+--- copper, kind ("vendor", "ah", "crafted", "prospect", "mill", "gather",
+--- "estimate") -- or nil when "gathered materials only" rules it out.
 function ItemCost(id, depth)
 	depth = depth or 0
 	if memoVersion ~= version then memo, memoVersion = {}, version end
@@ -191,6 +271,10 @@ function ItemCost(id, depth)
 	end
 	local craft = CraftCost(id, depth)
 	if craft and (not best or craft < best) then best, kind = craft, "crafted" end
+	if not gathered then
+		local conv, convKind = ConvertCost(id)
+		if conv and (not best or conv < best) then best, kind = conv, convKind end
+	end
 	if not best then
 		local est = (it and it.s and it.s > 0) and it.s * ESTIMATE_FACTOR or UNKNOWN_PRICE
 		if gathered then
@@ -389,7 +473,11 @@ function ns:CountShopping(list)
 		local e = list[i]
 		e.have = ns:ItemHave(e.id)
 		e.missing = math.max(0, e.need - e.have)
-		local c = ItemCost(e.id, 0)
+		local c, kind = ItemCost(e.id, 0)
+		-- an Auction House material is priced for the amount still needed:
+		-- 40 gems cost more each than the cheapest 20 when few are listed
+		if kind == "ah" and e.missing > 0 then c = ns:AHPrice(e.id, e.missing) end
+		e.kind = kind
 		e.cost = c and c * e.missing or nil
 		missingCost = missingCost + (e.cost or 0)
 	end

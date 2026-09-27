@@ -336,6 +336,7 @@ local function Help()
 	ns:Print("  " .. Y .. "/fprof drops|r      - also use recipes that only drop, on or off")
 	ns:Print("  " .. Y .. "/fprof path [profession]|r - the next steps, in chat")
 	ns:Print("  " .. Y .. "/fprof scan [list]|r - scan Auction House prices (Auction House open)")
+	ns:Print("  " .. Y .. "/fprof price <item>|r - what your last scan saw for one material")
 	ns:Print("  " .. Y .. "/fprof tracker [show, hide, lock, unlock, reset]|r - the step tracker")
 	ns:Print("  " .. Y .. "/fprof pins [world, minimap, skin <min> <max>, skin auto, clear, debug]|r - map pins")
 	ns:Print("  " .. Y .. "/fprof professions|r - which professions and skill levels were detected")
@@ -398,6 +399,9 @@ SlashCmdList.FYCOPROF = function(input)
 		elseif not ns:ScanAll() and ns:AuctionOpen() then
 			ns:ScanShopping()
 		end
+
+	elseif cmd == "price" then
+		if ns.PriceReport then ns:PriceReport(rest) end
 
 	elseif cmd == "professions" then
 		if ns.ProfessionsReport then ns:ProfessionsReport() end

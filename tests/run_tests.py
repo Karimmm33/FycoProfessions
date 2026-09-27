@@ -690,6 +690,90 @@ def auction_house_full_scan():
     no_errors(c)
 
 
+def open_ah(c):
+    c.run('AuctionFrame = CreateFrame("Frame", "AuctionFrame", UIParent); MOCK.fire("AUCTION_HOUSE_SHOW")')
+
+
+def full_scan(c, auctions):
+    c.run("MOCK.canQueryAll = true; MOCK.auctions = { %s }" % ", ".join("{%d, %d, %d}" % a for a in auctions))
+    assert c.eval("ns:ScanAll()")
+    c.run('MOCK.fire("AUCTION_ITEM_LIST_UPDATE"); MOCK.advance(1)')
+
+
+@test
+def prices_account_for_how_many_are_listed():
+    # reported from game: paths planned on one cheap listing cost far more.
+    # One Deep Peridot at 50c and five at 2s: twenty cost far more than 50c each
+    c = Client(skills=[("Jewelcrafting", 300, 375)])
+    open_ah(c)
+    full_scan(c, [(23079, 1, 50), (23079, 5, 1000)])
+    avg, _, supply, cheapest = c.eval("ns:AHPrice(23079)")
+    assert supply == 6 and cheapest == 50, (supply, cheapest)
+    want = (50 + 5 * 200 + 14 * 200 * 1.25) / 20
+    assert abs(avg - want) < 1e-6, (avg, want)
+    assert c.eval("(ns:AHPrice(23079, 1))") == 50
+    assert c.eval("(ns:AHPrice(23079, 6))") == (50 + 1000) / 6
+    # the path uses the price for a real amount, not the single cheap gem
+    assert c.eval("(ns:ItemCost(23079))") > 150
+    # a later full scan forgets what is no longer listed
+    c.run("MOCK.advance(1)")
+    full_scan(c, [(2840, 20, 2000)])
+    assert c.eval("(ns:AHPrice(23079))") is None
+    assert c.eval("(ns:AHPrice(2840))") == 100
+    no_errors(c)
+
+
+@test
+def shopping_scan_reads_every_page():
+    c = Client(skills=[("Jewelcrafting", 1, 75)])
+    open_ah(c)
+    c.run("MOCK.canQueryAll = false; MOCK.queries = {}; MOCK.auctions = {}; MOCK.auctionTotal = 120")
+    c.slash("scan list")
+    for _ in range(8):
+        c.run('MOCK.advance(0.2); MOCK.fire("AUCTION_ITEM_LIST_UPDATE")')
+    first = c.eval("MOCK.queries[1].name")
+    pages = [c.eval("MOCK.queries[%d].page" % i) for i in range(1, c.eval("#MOCK.queries") + 1)
+             if c.eval("MOCK.queries[%d].name" % i) == first]
+    assert pages[:3] == [0, 1, 2], pages       # 120 results = pages 0, 1, 2
+    no_errors(c)
+
+
+@test
+def prospecting_can_be_the_cheaper_source():
+    # Saronite Ore at 20s; its gems sell at 1g: prospecting beats buying gems
+    auctions = [(36912, 20, 20 * 2000)] + [(g, 20, 20 * 10000) for g in
+                (36917, 36920, 36923, 36926, 36929, 36932)]
+    c = Client(skills=[("Jewelcrafting", 350, 375)])
+    open_ah(c)
+    full_scan(c, auctions)
+    cost, kind = c.eval("ns:ItemCost(36932)")
+    assert kind == "prospect" and cost < 10000, (cost, kind)
+    assert c.eval("(ns:ConversionSource(36932))") == 36912
+    lines = " ".join(strip_colors(l) for l in c.eval("ns:ItemSourceLines(36932)").values())
+    assert "Prospecting: Saronite Ore works out at" in lines, lines
+    # a non-jewelcrafter cannot prospect: the gem costs what the AH asks
+    c2 = Client(skills=[("Blacksmithing", 350, 375)])
+    open_ah(c2)
+    full_scan(c2, auctions)
+    cost, kind = c2.eval("ns:ItemCost(36932)")
+    assert kind == "ah" and cost == 10000, (cost, kind)
+    no_errors(c)
+
+
+@test
+def price_command_shows_the_listings():
+    c = Client()
+    open_ah(c)
+    full_scan(c, [(23079, 1, 50), (23079, 5, 1000)])
+    c.clear_chat()
+    c.slash("price deep peridot")
+    text = " ".join(strip_colors(m) for m in c.chat())
+    assert "Deep Peridot" in text and "1 at 50c" in text and "5 at 2s 00c" in text, text
+    assert "only 6 listed" in text, text
+    c.slash("price no such thing")
+    assert "no material called" in strip_colors(c.chat()[-1])
+
+
 @test
 def scan_needs_the_auction_house():
     c = Client()
