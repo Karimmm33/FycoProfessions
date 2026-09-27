@@ -19,6 +19,8 @@ It is a sister of [FycoPvE](https://github.com/Karimmm33/FycoPvE) and
 | **Prices** | Vendor prices, your own Auction House scans (one click on the Auction House window; buyouts only, priced for buying 20 so one cheap listing does not fool it), the cost of crafting a material yourself, or of prospecting ore / milling herbs for it. Anything else is a marked estimate. |
 | **Gathering** | Mining, Herbalism, Skinning: the best zones for your skill (not the other faction's home zones), which nodes or mobs still give skill-ups, and the skill at which to move on. |
 | **Map pins** | Nodes and skinnable mobs on your world map (works with Mapster) and minimap, coloured by difficulty. Automatically: what still gives you skill-ups where you are. Or pin exactly the mobs or nodes you click in the Skinning, Mining or Herbalism tab, or every skinnable mob in a level range. Each part can be switched off. |
+| **Auction buyer** | A panel beside the Auction House: an item (typed, or picked from what your paths still need), how many, and the most you pay each. **Search**, then **Buy next** buys the cheapest listing under your limit, one per click or key press (Key Bindings → FycoProfessions). An automatic mode is there to try; if the game only allows buying from a click, it switches itself off and says so. Never buys your own listings or anything over the limit. |
+| **Mail** | **Take all** on the inbox: every item and all gold, one at a time, skipping cash-on-delivery mail, stopping when your bags are full. Optionally as soon as the mailbox opens. |
 | **Fishing** | Every fishing zone by required skill, your catch chance there, and how many catches a skill-up takes. |
 | **Extras** | Jewelcrafting: prospecting results and the Dalaran daily tokens. Inscription: milling. Enchanting: where each material disenchants from. Mining: smelting. |
 | **All professions** | Browse any profession, even one you do not have, as a preview from skill 1. |
@@ -70,6 +72,8 @@ Everything below is also in the settings UI.
 | `/fprof drops` | also use recipes that only drop, on or off |
 | `/fprof path [profession]` | the next steps, in chat |
 | `/fprof scan [list]` | scan Auction House prices (with the Auction House open) |
+| `/fprof buy <how many> <most each> <item>` | buy at the Auction House, e.g. `/fprof buy 60 80s shadow crystal`, then Buy next |
+| `/fprof mail` | take every item and all gold from the open mailbox |
 | `/fprof price <item>` | what your last scan saw for one material: every price level and how many are listed |
 | `/fprof tracker [show, hide, lock, unlock, reset]` | the step tracker |
 | `/fprof pins` | map pins on or off; `world` / `minimap` toggle each map, `skin 20 25` pins skinnable mobs of levels 20-25, `skin auto` goes back to automatic, `clear` removes your hand-picked pins |

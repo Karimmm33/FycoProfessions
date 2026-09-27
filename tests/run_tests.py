@@ -774,6 +774,158 @@ def price_command_shows_the_listings():
     assert "no material called" in strip_colors(c.chat()[-1])
 
 
+# ---------------------------------------------------------------------------
+# auction buyer and mail
+# ---------------------------------------------------------------------------
+
+@test
+def money_is_read_the_way_people_type_it():
+    c = Client()
+    for text, copper in (("1g20s", 12000), ("85s", 8500), ("85", 8500), ("1.5g", 15000), ("2g 5c", 20005),
+                         ("45c", 45), ("0.5", 50)):
+        assert c.eval('ns:ParseMoney("%s")' % text) == copper, text
+    for bad in ("abc", "5x", "", "g"):
+        assert c.eval('ns:ParseMoney("%s")' % bad) is None, bad
+
+
+SC = 36926   # Shadow Crystal
+
+
+def buyer_at_ah(c, listings):
+    open_ah(c)
+    c.run("MOCK.canQuery = true; MOCK.queries = {}; MOCK.bought = {}; MOCK.auctions = { %s }" % ", ".join(
+        '{%d, %d, %d, "%s", "%s"}' % l for l in listings))
+
+
+def settle(c):
+    """Let the buyer send its query, then answer it like the server."""
+    c.run('MOCK.advance(0.2); MOCK.fire("AUCTION_ITEM_LIST_UPDATE")')
+
+
+@test
+def buyer_buys_cheapest_first_under_the_limit():
+    c = Client()
+    buyer_at_ah(c, [(SC, 5, 5 * 9000, "Shadow Crystal", "Bob"),       # 90s each: over the limit
+                    (SC, 10, 10 * 7000, "Shadow Crystal", "Ann"),     # 70s
+                    (SC, 1, 7500, "Shadow Crystal", "Cid"),           # 75s
+                    (SC, 3, 3 * 6000, "Shadow Crystal", "Tester"),    # ours: never
+                    (99, 1, 10, "Shadow Crystal Dust", "Dan")])       # another item
+    assert c.eval("FycoProfessionsBuyer ~= nil"), "no buyer panel beside the Auction House"
+    assert c.eval('ns:BuyStart("Shadow Crystal", 12, 8000)')
+    settle(c)
+    assert c.eval("ns:BuyJob().state") == "ready"
+    assert "Next click: buy 10 at 70s" in strip_colors(c.eval("FycoProfessionsBuyer.status:GetText()"))
+    assert c.eval("ns:BuyNext()")
+    settle(c)                       # the list after the purchase
+    settle(c)                       # the page read again
+    assert c.eval("ns:BuyNext()")
+    settle(c); settle(c)
+    assert c.eval("ns:BuyJob().bought") == 11
+    # nothing else qualifies: one more pass over the pages, then it says so
+    c.run("ns:BuyNext()"); settle(c)
+    assert not c.eval("ns:BuyNext()")
+    assert "No more listings under your limit" in strip_colors(c.eval("FycoProfessionsBuyer.status:GetText()"))
+    bought = [(c.eval("MOCK.bought[%d].count" % i), c.eval("MOCK.bought[%d].paid" % i))
+              for i in range(1, c.eval("#MOCK.bought") + 1)]
+    assert bought == [(10, 70000), (1, 7500)], bought
+    no_errors(c)
+
+
+@test
+def buyer_stops_at_the_amount_and_the_purse():
+    c = Client()
+    buyer_at_ah(c, [(SC, 2, 2 * 5000, "Shadow Crystal", "Ann"), (SC, 2, 2 * 5000, "Shadow Crystal", "Bob")])
+    c.run('ns:BuyStart("Shadow Crystal", 2, 8000)')
+    settle(c)
+    c.run("ns:BuyNext()"); settle(c); settle(c)
+    assert not c.eval("ns:BuyNext()"), "bought past the amount asked for"
+    assert c.eval("#MOCK.bought") == 1
+    # not enough gold: nothing is bought
+    c2 = Client()
+    buyer_at_ah(c2, [(SC, 2, 2 * 5000, "Shadow Crystal", "Ann")])
+    c2.run('MOCK.money = 100; ns:BuyStart("Shadow Crystal", 2, 8000)')
+    settle(c2)
+    assert not c2.eval("ns:BuyNext()")
+    assert c2.eval("#MOCK.bought") == 0
+    assert "Not enough gold" in strip_colors(c2.eval("FycoProfessionsBuyer.status:GetText()"))
+
+
+@test
+def buyer_command_and_automatic_mode():
+    c = Client()
+    buyer_at_ah(c, [(SC, 1, 7000, "Shadow Crystal", "Ann"), (SC, 1, 7100, "Shadow Crystal", "Bob")])
+    c.slash("buy 2 80s shadow crystal")
+    assert c.eval("ns:BuyJob().name") == "Shadow Crystal" and c.eval("ns:BuyJob().max") == 8000
+    c.run('ns:Set("buyer", "auto", true)')
+    for _ in range(6):
+        settle(c)
+    assert c.eval("#MOCK.bought") == 2, "automatic mode did not buy both"
+    # the game refusing: automatic is switched off and the player told
+    c.clear_chat()
+    c.run('MOCK.fire("ADDON_ACTION_BLOCKED", "FycoProfessions", "PlaceAuctionBid()")')
+    assert c.eval('ns:Get("buyer", "auto")') is False
+    assert any("only allows buying from a click" in strip_colors(m) for m in c.chat())
+    c.slash("buy nonsense")
+    assert "usage" in strip_colors(c.chat()[-1])
+    # closing the Auction House ends the job
+    c.run("AuctionFrame:Hide(); MOCK.advance(0.2)")
+    assert c.eval("ns:BuyJob()") is None
+    no_errors(c)
+
+
+def run_mail(c, rounds=20):
+    for _ in range(rounds):
+        c.run('MOCK.advance(0.4); MOCK.fire("MAIL_INBOX_UPDATE")')
+
+
+@test
+def mail_take_all():
+    c = Client()
+    c.run('MOCK.mail = { {money = 5000}, {cod = 100, items = {"Paid for"}}, {items = {"Ore", "Gem"}, money = 20} }')
+    c.run('MOCK.fire("MAIL_SHOW")')
+    assert c.eval("FycoProfessionsMailTakeAll ~= nil"), "no Take all button on the inbox"
+    c.clear_chat()
+    c.run('MOCK.run(FycoProfessionsMailTakeAll, "OnClick")')
+    run_mail(c)
+    taken = sorted(c.eval("MOCK.taken").values())
+    assert taken == sorted(["money:20", "Ore", "Gem", "money:5000"]), taken
+    assert "Paid for" not in taken, "a cash-on-delivery mail was taken"
+    assert not c.eval("ns:MailRunning()")
+    assert any("took 2 items and" in strip_colors(m) for m in c.chat()), c.chat()
+    no_errors(c)
+
+
+@test
+def mail_stops_when_bags_are_full_or_the_box_closes():
+    c = Client()
+    c.run('MOCK.freeSlots = 1; MOCK.mail = { {items = {"A", "B", "C"}}, {money = 700} }')
+    c.run('MOCK.fire("MAIL_SHOW")')
+    c.clear_chat()
+    c.slash("mail")
+    run_mail(c)
+    taken = c.eval("MOCK.taken").values()
+    assert sorted(taken) == ["A", "money:700"], sorted(taken)     # gold still comes
+    assert any("bags are full" in strip_colors(m) for m in c.chat()), c.chat()
+    # closing mid-way stops it
+    c.run('MOCK.freeSlots = 20; MOCK.taken = {}; MOCK.mail = { {items = {"A", "B", "C", "D"}} }')
+    c.slash("mail")
+    c.run('MOCK.advance(0.4); MOCK.fire("MAIL_INBOX_UPDATE"); MOCK.fire("MAIL_CLOSED")')
+    run_mail(c)
+    assert c.eval("#MOCK.taken") == 1
+    # away from a mailbox
+    c.clear_chat()
+    c.slash("mail")
+    assert "open your mailbox" in strip_colors(c.chat()[-1])
+
+
+@test
+def mail_can_take_all_on_opening():
+    c = Client()
+    c.run('ns:Set("mail", "auto", true); MOCK.mail = { {money = 100} }; MOCK.fire("MAIL_SHOW")')
+    run_mail(c, 3)
+    assert list(c.eval("MOCK.taken").values()) == ["money:100"]
+
+
 @test
 def scan_needs_the_auction_house():
     c = Client()

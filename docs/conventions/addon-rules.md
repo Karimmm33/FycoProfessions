@@ -119,6 +119,8 @@ The modules, in load order:
 | `Browser` | the All professions tab |
 | `Tracker` | the on-screen step frame; asks `ns.TrackerProviders[kind]` for its lines |
 | `Tooltip` | "Needed for your ... path" lines |
+| `Buyer` | buying at the Auction House under a price limit, one listing per click (`PlaceAuctionBid` may need a hardware event; `ADDON_ACTION_BLOCKED` turns automatic mode off); `Bindings.xml` binds Buy next |
+| `Mail` | Take all from the inbox, one take per `MAIL_INBOX_UPDATE`, skipping COD |
 | `Pins` | world map and minimap pins for nodes and skinnable mobs (`Data/Spawns.lua`, packed positions x * 10 * 1001 + y * 10) |
 | `Options` | the settings pages |
 

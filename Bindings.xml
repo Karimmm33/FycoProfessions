@@ -1,0 +1,5 @@
+<Bindings>
+	<Binding name="FYCOPROF_BUYNEXT" header="FYCOPROF">
+		FycoProfessions_BuyNext()
+	</Binding>
+</Bindings>

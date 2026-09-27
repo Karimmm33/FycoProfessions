@@ -1,6 +1,6 @@
 # FycoProfessions in-game testing sheet
 
-> **Status (0.11.0): every phase is built and passes the automated suite. In
+> **Status (0.12.0): every phase is built and passes the automated suite. In
 > game, only the settings width fix (C0) is confirmed so far; everything else,
 > including the new map pins (section O), still needs testing.** This sheet
 > covers all of it, in the order it was built.
@@ -46,7 +46,7 @@ tell me what the game shows and I will correct the data.
 
 | ID | How | Expected |
 |---|---|---|
-| A1 | Log in and look at chat. | One line: `FycoProfessions v0.11.0 - x2, target: your rank's cap, <your faction>. /fprof to open.` (auto) |
+| A1 | Log in and look at chat. | One line: `FycoProfessions v0.12.0 - x2, target: your rank's cap, <your faction>. /fprof to open.` (auto) |
 | A2 | Look at the edge of the minimap. | A round button with a note icon, separate from FycoPvE's book button. |
 | A3 | Type `/fprof help`. | A list of twelve commands, with no red text. (auto) |
 | A4 | Type `/reload`. | The same greeting again, and no errors. |
@@ -55,7 +55,7 @@ tell me what the game shows and I will correct the data.
 
 | ID | How | Expected |
 |---|---|---|
-| B1 | Type `/fprof`. | A window titled **FycoProfessions v0.11.0**, grey line under it `Guide: x2, target: your rank's cap, <faction>`, a **Settings** button top-right. Tab buttons: one per profession you have (for example **Jewelcrafting**, **Skinning**, **Cooking**, **First Aid**, **Fishing**) and **All professions** last. No tab for a profession you do not have. (auto) |
+| B1 | Type `/fprof`. | A window titled **FycoProfessions v0.12.0**, grey line under it `Guide: x2, target: your rank's cap, <faction>`, a **Settings** button top-right. Tab buttons: one per profession you have (for example **Jewelcrafting**, **Skinning**, **Cooking**, **First Aid**, **Fishing**) and **All professions** last. No tab for a profession you do not have. (auto) |
 | B2 | Drag the window by its title area, close it with X, then `/fprof` again. | It reopens where you left it. |
 | B3 | With the window open, press **Escape**. | It closes. |
 | B4 | Left-click the minimap button, then right-click it. | Left opens and closes the window. Right opens *Interface → AddOns → FycoProfessions*. |
@@ -244,10 +244,36 @@ Best done on your skinner in Ashenvale (or any zone with mobs you can skin).
 
 ---
 
+## Auction buyer (0.12.0)
+
+| ID | How | Expected |
+|---|---|---|
+| P1 | Open the Auction House. | A **FycoProf buyer** panel to the right of the Auction House window: a dropdown of what your paths still need, **Item name**, **How many**, **Most per item**, **Search**, **Stop**, a big **Buy next**, and a status line. It does not cover the Auction House window. |
+| P2 | Pick an item from the dropdown. | Item name and how many are filled in; Most per item is filled with the scanned price + 20% if it was empty. |
+| P3 | Type `Shadow Crystal`, `60`, `80s`, click **Search**. | Status: `Bought 0 of 60 x Shadow Crystal (at most 80s 00c each).` and `Next click: buy N at X each = Y` -- the cheapest listing under 80s. (auto) |
+| P4 | Click **Buy next** a few times. | Each click buys exactly the listing the status line named; the line then names the next one. Your own listings and anything over 80s are never bought. The count goes up; at 60 it says **Done**. (auto) |
+| P5 | Bind a key: Esc → Key Bindings → **FycoProfessions** → **Buy next auction**. Press it instead of clicking. | Same as P4. |
+| P6 | *Settings → Auction buyer*: tick **Buy automatically**, Search again. | Either it buys on by itself (the game allows it on this realm), or you get a chat line that the game only allows buying from a click and the box unticks itself (a Blizzard "action blocked" message may appear once). Tell me which. (auto) |
+| P7 | `/fprof buy 10 50s <an item>`. | The panel fills in and searches, as P3. (auto) |
+| P8 | Close the Auction House during a job. | `buyer stopped: bought N x ... for ...`. (auto) |
+
+## Mail (0.12.0)
+
+| ID | How | Expected |
+|---|---|---|
+| Q1 | Open a mailbox with several mails with items and gold. | A **Take all** button on the inbox, near the top right. |
+| Q2 | Click it. | Items and gold come out one after another (a few per second) without clicking each; cash-on-delivery mails stay. Chat: `mail: took N items and <gold>.` (auto) |
+| Q3 | With almost full bags, Take all. | It stops when the bags are full (`your bags are full`); gold still comes out. (auto) |
+| Q4 | Close the mailbox mid-way. | It stops: `mailbox closed`. (auto) |
+| Q5 | More than 50 mails. | After the first 50: `N more mails wait on the server ...`. Reopen the mailbox after about a minute and Take all again. |
+| Q6 | *Settings → Mail*: tick **Take all when the mailbox opens**; open a mailbox. | It starts by itself. (auto) |
+
+---
+
 ## Automated tests
 
 `py -3.11 tests/run_tests.py` (needs `pip install lupa`) loads the real addon,
-with all its generated data, into Lua 5.1 against the mock client. 49 tests,
+with all its generated data, into Lua 5.1 against the mock client. 66 tests,
 among them:
 
 | Test | Covers |

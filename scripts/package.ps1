@@ -28,7 +28,7 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 
 # Must match deploy.ps1: what a user gets is what you tested against.
-$rootFiles  = @("FycoProfessions.toc", "Core.lua", "Widgets.lua", "Sources.lua", "README.md", "LICENSE")
+$rootFiles  = @("FycoProfessions.toc", "Core.lua", "Widgets.lua", "Sources.lua", "Bindings.xml", "README.md", "LICENSE")
 $mirrorDirs = @("Data", "Modules")
 
 # --- version, from the .toc --------------------------------------------------

@@ -165,6 +165,12 @@ ns.Defaults = {
 		worldSize = 14,
 		miniSize = 12,
 	},
+	buyer = {
+		auto = false,         -- try buying without a click per listing (the game may refuse)
+	},
+	mail = {
+		auto = false,         -- take all as soon as the mailbox opens
+	},
 	tracker = {
 		shown = true,
 		locked = false,
@@ -179,7 +185,11 @@ ns.CharDefaults = {
 
 -- module switches, written one key at a time so a module added later turns
 -- itself on without resetting what has been saved
-local moduleDefaults = { tracker = true, tooltip = true, pins = true }
+local moduleDefaults = { tracker = true, tooltip = true, pins = true, buyer = true, mail = true }
+
+-- key bindings (Bindings.xml): the names shown under Key Bindings
+BINDING_HEADER_FYCOPROF = "FycoProfessions"
+BINDING_NAME_FYCOPROF_BUYNEXT = "Buy next auction"
 
 function ns:Get(section, key)
 	local s = FycoProfessionsDB and FycoProfessionsDB[section]
@@ -337,6 +347,8 @@ local function Help()
 	ns:Print("  " .. Y .. "/fprof path [profession]|r - the next steps, in chat")
 	ns:Print("  " .. Y .. "/fprof scan [list]|r - scan Auction House prices (Auction House open)")
 	ns:Print("  " .. Y .. "/fprof price <item>|r - what your last scan saw for one material")
+	ns:Print("  " .. Y .. "/fprof buy <how many> <most each> <item>|r - buy at the Auction House, e.g. 60 80s shadow crystal")
+	ns:Print("  " .. Y .. "/fprof mail|r       - take every item and all gold from your mailbox")
 	ns:Print("  " .. Y .. "/fprof tracker [show, hide, lock, unlock, reset]|r - the step tracker")
 	ns:Print("  " .. Y .. "/fprof pins [world, minimap, skin <min> <max>, skin auto, clear, debug]|r - map pins")
 	ns:Print("  " .. Y .. "/fprof professions|r - which professions and skill levels were detected")
@@ -399,6 +411,14 @@ SlashCmdList.FYCOPROF = function(input)
 		elseif not ns:ScanAll() and ns:AuctionOpen() then
 			ns:ScanShopping()
 		end
+
+	elseif cmd == "buy" then
+		if not ns.BuyCommand or not ns:Enabled("buyer") then ns:Print("buyer module is off")
+		else ns:BuyCommand(rest) end
+
+	elseif cmd == "mail" then
+		if not ns.MailTakeAll or not ns:Enabled("mail") then ns:Print("mail module is off")
+		else ns:MailTakeAll() end
 
 	elseif cmd == "price" then
 		if ns.PriceReport then ns:PriceReport(rest) end

@@ -448,8 +448,50 @@ function GetAuctionItemLink(_, i)
 	local a = MOCK.auctions[i]
 	return a and ("|cffffffff|Hitem:" .. a[1] .. ":0:0:0:0:0:0:0:0|h[x]|h|r") or nil
 end
+-- listings: { id, count, buyout, name, owner }
 function GetAuctionItemInfo(_, i)
 	local a = MOCK.auctions[i]
 	if not a then return nil end
-	return "Item", "icon", a[2], 1, 1, 1, 0, 0, a[3], 0, nil, "Seller"
+	return a[4] or "Item", "icon", a[2], 1, 1, 1, 0, 0, a[3], 0, nil, a[5] or "Seller"
 end
+
+-- buying: records the purchase, takes the gold, removes the listing (the
+-- list update the server sends afterwards is fired by the test)
+MOCK.money, MOCK.bought = 1000000000, {}
+function GetMoney() return MOCK.money end
+function PlaceAuctionBid(_, i, amount)
+	local a = MOCK.auctions[i]
+	table.insert(MOCK.bought, { id = a and a[1], count = a and a[2], paid = amount })
+	MOCK.money = MOCK.money - amount
+	table.remove(MOCK.auctions, i)
+end
+function Frame:SetNumeric() end
+function Frame:SetAutoFocus() end
+function Frame:ClearFocus() end
+
+-- the mailbox: MOCK.mail = { {money, cod, items = {name, ...}}, ... }
+MOCK.mail, MOCK.freeSlots, MOCK.taken = {}, 20, {}
+InboxFrame = newRegion("Frame", "InboxFrame", UIParent)
+function GetInboxNumItems() return #MOCK.mail, MOCK.mailTotal or #MOCK.mail end
+function GetInboxHeaderInfo(i)
+	local m = MOCK.mail[i]
+	if not m then return nil end
+	return "icon", nil, "Sender", "Subject", m.money or 0, m.cod or 0, 30, #(m.items or {}) > 0
+end
+function GetInboxItem(i, a)
+	local m = MOCK.mail[i]
+	return m and m.items and m.items[a] or nil
+end
+function TakeInboxMoney(i)
+	local m = MOCK.mail[i]
+	table.insert(MOCK.taken, "money:" .. (m.money or 0))
+	m.money = 0
+end
+function TakeInboxItem(i, a)
+	local m = MOCK.mail[i]
+	table.insert(MOCK.taken, m.items[a])
+	table.remove(m.items, a)
+	MOCK.freeSlots = MOCK.freeSlots - 1
+end
+function GetContainerNumFreeSlots(bag) return bag == 0 and MOCK.freeSlots or 0 end
+function CheckInbox() end

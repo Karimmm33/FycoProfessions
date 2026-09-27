@@ -314,6 +314,8 @@ local function BuildMain()
 		{ "tracker", "Tracker - current step on screen" },
 		{ "tooltip", "Tooltips - 'needed for your path'" },
 		{ "pins", "Map pins - nodes and mobs" },
+		{ "buyer", "Auction buyer - buy under a limit" },
+		{ "mail", "Mail - take all" },
 	}
 	for i = 1, #mods do
 		local key = mods[i][1]
