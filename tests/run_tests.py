@@ -824,10 +824,82 @@ def buyer_buys_cheapest_first_under_the_limit():
     # nothing else qualifies: one more pass over the pages, then it says so
     c.run("ns:BuyNext()"); settle(c)
     assert not c.eval("ns:BuyNext()")
-    assert "No more listings under your limit" in strip_colors(c.eval("FycoProfessionsBuyer.status:GetText()"))
+    s = strip_colors(c.eval("FycoProfessionsBuyer.status:GetText()"))
+    assert "cheapest 90s 00c each: over your limit, 1 yours" in s, s
     bought = [(c.eval("MOCK.bought[%d].count" % i), c.eval("MOCK.bought[%d].paid" % i))
               for i in range(1, c.eval("#MOCK.bought") + 1)]
     assert bought == [(10, 70000), (1, 7500)], bought
+    no_errors(c)
+
+
+@test
+def buyer_ignores_the_empty_answer_before_the_results():
+    # reported from game: Chalcedony was listed, yet the buyer said "no more
+    # listings" -- it believed the empty list announced as the search left
+    c = Client()
+    buyer_at_ah(c, [])
+    c.run('ns:BuyStart("Chalcedony", 5, 20000); MOCK.advance(0.2)')
+    c.run('MOCK.fire("AUCTION_ITEM_LIST_UPDATE")')             # empty: the search just left
+    assert c.eval("ns:BuyJob().state") == "searching"
+    c.run('MOCK.auctions = { {36923, 2, 2 * 15000, "Chalcedony", "Ann"} }; MOCK.fire("AUCTION_ITEM_LIST_UPDATE")')
+    assert c.eval("ns:BuyJob().state") == "ready"
+    assert "Next click: buy 2 at 1g 50s" in strip_colors(c.eval("FycoProfessionsBuyer.status:GetText()"))
+    # a search that truly finds nothing still ends, after a few seconds
+    c2 = Client()
+    buyer_at_ah(c2, [])
+    c2.run('ns:BuyStart("Huge Citrine", 5, 20000); MOCK.advance(0.2); MOCK.fire("AUCTION_ITEM_LIST_UPDATE")')
+    c2.run("MOCK.advance(3.5)")
+    assert c2.eval("ns:BuyJob().state") == "ready"
+    assert "no Huge Citrine right now" in strip_colors(c2.eval("FycoProfessionsBuyer.status:GetText()"))
+    no_errors(c)
+
+
+@test
+def auction_searches_carry_no_filters():
+    # reported from game: the buyer found no Chalcedony that the normal
+    # search showed -- its searches passed 0s, read by the server as filters
+    c = Client(skills=[("Jewelcrafting", 1, 75)])
+    buyer_at_ah(c, [(36923, 2, 30000, "Chalcedony", "Ann")])
+    c.run('ns:BuyStart("Chalcedony", 2, 20000)')
+    settle(c)
+    assert c.eval("#MOCK.queries") >= 1
+    for i in range(1, c.eval("#MOCK.queries") + 1):
+        assert not c.eval("MOCK.queries[%d].filtered" % i), "a search carried a filter"
+    assert "Next click: buy 2" in strip_colors(c.eval("FycoProfessionsBuyer.status:GetText()"))
+    # the shopping price scan too
+    c.run("MOCK.canQueryAll = false; MOCK.queries = {}")
+    c.slash("scan list")
+    c.run("MOCK.advance(0.3)")
+    assert c.eval("#MOCK.queries") >= 1 and not c.eval("MOCK.queries[1].filtered")
+
+
+@test
+def buyer_typed_search_and_its_messages():
+    c = Client()
+    buyer_at_ah(c, [(36929, 3, 3 * 30000, "Huge Citrine", "Ann"), (36929, 1, 9000, "Huge Citrine", "Tester")])
+    status = lambda: strip_colors(c.eval("FycoProfessionsBuyer.status:GetText()"))
+    c.run('FycoProfessionsBuyerItem:SetText(""); MOCK.run(FycoProfessionsBuyerSearch, "OnClick")')
+    assert "Type an item name" in status()
+    c.run('FycoProfessionsBuyerItem:SetText("huge citrine"); FycoProfessionsBuyerMax:SetText(""); '
+          'MOCK.run(FycoProfessionsBuyerSearch, "OnClick")')
+    assert "Most per item is missing" in status()
+    # typed in lower case, no amount: the item's own capitals, and 1
+    c.run('FycoProfessionsBuyerMax:SetText("2g"); FycoProfessionsBuyerQty:SetText(""); '
+          'MOCK.run(FycoProfessionsBuyerSearch, "OnClick")')
+    assert c.eval("ns:BuyJob().name") == "Huge Citrine" and c.eval("ns:BuyJob().want") == 1
+    settle(c)
+    # 3g each is over 2g, and the cheap one is ours: it says so
+    s = status()
+    assert "2 Huge Citrine listed, cheapest 3g 00s each: over your limit, 1 yours" in s, s
+    # "Selected" copies the row picked in the Auction House list
+    c.run('MOCK.selectedAuction = 1; FycoProfessionsBuyerItem:SetText("")')
+    c.run("""for _, f in ipairs(MOCK.frames) do
+        if f._parent == FycoProfessionsBuyer and f._text == "Selected" then MOCK.run(f, "OnClick") end end""")
+    assert c.eval("FycoProfessionsBuyerItem:GetText()") == "Huge Citrine"
+    # shift-clicking a link into the focused name box
+    c.run('FycoProfessionsBuyerItem:SetText(""); MOCK.focus = FycoProfessionsBuyerItem; '
+          'ChatEdit_InsertLink("|cff0070dd|Hitem:36923:0:0:0:0:0:0:0:0|h[Chalcedony]|h|r")')
+    assert c.eval("FycoProfessionsBuyerItem:GetText()") == "Chalcedony"
     no_errors(c)
 
 

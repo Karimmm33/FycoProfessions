@@ -439,8 +439,13 @@ function Frame:SetFrameLevel(l) self._level = l end
 MOCK.auctions, MOCK.queries = {}, {}
 MOCK.canQuery, MOCK.canQueryAll = true, true
 function CanSendAuctionQuery() return MOCK.canQuery, MOCK.canQueryAll end
-function QueryAuctionItems(name, _, _, _, _, _, page, _, _, getAll)
-	table.insert(MOCK.queries, { name = name, page = page, all = getAll })
+-- like the server: any filter set (category, usable-only...) on a name
+-- search narrows it -- here to nothing, so a stray filter cannot hide
+function QueryAuctionItems(name, minL, maxL, invType, class, subclass, page, usable, rarity, getAll)
+	local filtered = minL ~= nil or maxL ~= nil or invType ~= nil or class ~= nil or subclass ~= nil
+		or usable ~= nil or rarity ~= nil
+	table.insert(MOCK.queries, { name = name, page = page, all = getAll, filtered = filtered })
+	if filtered and not getAll then MOCK.auctions = {} end
 end
 -- like the client: listings on this page, then the total the search found
 function GetNumAuctionItems() return #MOCK.auctions, MOCK.auctionTotal or #MOCK.auctions end
@@ -465,6 +470,17 @@ function PlaceAuctionBid(_, i, amount)
 	MOCK.money = MOCK.money - amount
 	table.remove(MOCK.auctions, i)
 end
+function GetSelectedAuctionItem() return MOCK.selectedAuction or 0 end
+function hooksecurefunc(name, fn)
+	local orig = _G[name]
+	_G[name] = function(...)
+		local r = { orig(...) }
+		fn(...)
+		return unpack(r)
+	end
+end
+function ChatEdit_InsertLink() return false end
+function Frame:HasFocus() return MOCK.focus == self end
 function Frame:SetNumeric() end
 function Frame:SetAutoFocus() end
 function Frame:ClearFocus() end

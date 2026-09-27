@@ -180,6 +180,14 @@ end
 -- starting scans
 ----------------------------------------------------------------------
 
+--- A name search, page `page`, with no other filter -- passed exactly as
+--- Blizzard's own AuctionUI in this client passes "no filter": nil. The
+--- first version passed 0s: 0 is true in Lua, so "usable items only" was
+--- on and category 0 matched nothing, and every search came back empty.
+function ns:AuctionSearch(name, page)
+	QueryAuctionItems(name, nil, nil, nil, nil, nil, page or 0, nil, nil, false)
+end
+
 local function AHOpen()
 	return AuctionFrame ~= nil and AuctionFrame:IsShown() and true or false
 end
@@ -203,7 +211,7 @@ function ns:ScanAll()
 		return false
 	end
 	scan = { mode = "all", found = {}, waiting = true }
-	QueryAuctionItems("", nil, nil, 0, 0, 0, 0, 0, 0, true)
+	QueryAuctionItems("", nil, nil, nil, nil, nil, 0, nil, nil, true)
 	ns:Print("full Auction House scan started...")
 	return true
 end
@@ -300,7 +308,7 @@ local function Tick()
 			return
 		end
 		scan.pending = true
-		QueryAuctionItems(q.name, nil, nil, 0, 0, 0, scan.page, 0, 0, false)
+		ns:AuctionSearch(q.name, scan.page)
 	end
 end
 

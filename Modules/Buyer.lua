@@ -109,7 +109,31 @@ local function Describe()
 			UI.Money(best.buyout), extra)
 	end
 	if job.page + 1 < job.pages then return head .. "\nNext click: look at page " .. (job.page + 2) .. "." end
-	return head .. "\n|cffff8040No more listings under your limit.|r"
+	-- say WHY nothing qualifies, from what the page actually holds
+	local listed, cheapest, mine, bidOnly = 0, nil, 0, 0
+	for i = 1, (GetNumAuctionItems("list") or 0) do
+		local name, _, count, _, _, _, _, _, buyout, _, _, owner = GetAuctionItemInfo("list", i)
+		if name and name:lower() == job.name:lower() then
+			listed = listed + 1
+			if owner == Me() then
+				mine = mine + 1
+			elseif not buyout or buyout <= 0 then
+				bidOnly = bidOnly + 1
+			else
+				local unit = buyout / math.max(1, count or 1)
+				if not cheapest or unit < cheapest then cheapest = unit end
+			end
+		end
+	end
+	if listed == 0 then
+		return head .. "\n|cffff8040The Auction House has no " .. job.name
+			.. " right now.|r Check the name: it must be the item's full name."
+	end
+	local why = string.format("\n|cffff8040%d %s listed", listed, job.name)
+	if cheapest then why = why .. ", cheapest " .. UI.Money(cheapest) .. " each: over your limit" end
+	if mine > 0 then why = why .. ", " .. mine .. " yours" end
+	if bidOnly > 0 then why = why .. ", " .. bidOnly .. " without buyout" end
+	return head .. why .. ".|r"
 end
 
 --- Start buying: name, quantity, most per item (copper).
@@ -187,13 +211,20 @@ end
 -- events and the ticker
 ----------------------------------------------------------------------
 
+local EMPTY_GRACE = 3        -- seconds an empty answer is distrusted after a search
+
 local function OnListUpdate()
 	if not job then return end
 	if job.state == "searching" and job.queried then
-		local _, total = GetNumAuctionItems("list")
-		job.pages = math.min(MAX_PAGES, math.max(1, math.ceil((total or 0) / PAGE)))
+		local shown, total = GetNumAuctionItems("list")
+		-- an update can arrive with the list still empty before the results
+		-- do; an empty answer is only believed after EMPTY_GRACE seconds
+		if (shown or 0) == 0 and GetTime() - job.queriedAt < EMPTY_GRACE then return end
+		job.pages = math.min(MAX_PAGES, math.max(1, math.ceil((total or shown or 0) / PAGE)))
 		job.state = "ready"
 		Status(Describe())
+	elseif job.state == "ready" then
+		Status(Describe())           -- any change to the list: say what the next click does now
 	elseif job.state == "waiting" then
 		-- the purchase went through: read the page again so the next buy
 		-- never aims at a listing that is already gone
@@ -213,8 +244,14 @@ local function Tick(now)
 		return
 	end
 	if job.state == "searching" and not job.queried and CanSendAuctionQuery() then
-		job.queried = true
-		QueryAuctionItems(job.name, nil, nil, 0, 0, 0, job.page, 0, 0, false)
+		job.queried, job.queriedAt = true, now
+		ns:AuctionSearch(job.name, job.page)
+	elseif job.state == "searching" and job.queried and now - job.queriedAt > EMPTY_GRACE then
+		-- only empty answers came: the search really found nothing
+		local shown, total = GetNumAuctionItems("list")
+		job.pages = math.min(MAX_PAGES, math.max(1, math.ceil((total or shown or 0) / PAGE)))
+		job.state = "ready"
+		Status(Describe())
 	elseif job.state == "waiting" and now - job.waitStart > WAIT_TIMEOUT then
 		Query(job.page)              -- no list update came: read the page again
 	elseif job.state == "ready" and ns:Get("buyer", "auto") and job.bought < job.want and now - lastAuto >= AUTO_EVERY then
@@ -315,12 +352,41 @@ local function Build()
 	search:SetPoint("TOPLEFT", 12, -166)
 	search:SetText("Search")
 	search:SetScript("OnClick", function()
-		local max = ns:ParseMoney(panel.max:GetText())
-		if not max then
-			ns:Print("the most per item reads like 1g20s, 85s or 85 (silver).")
+		-- every problem goes on the panel itself: a message only in chat
+		-- made a typed search look like a button that did nothing
+		local name = (panel.item:GetText() or ""):gsub("^%s+", ""):gsub("%s+$", "")
+		if name == "" then
+			Status("|cffff6060Type an item name first|r (or shift-click an item link into the box).")
 			return
 		end
-		ns:BuyStart(panel.item:GetText(), tonumber(panel.qty:GetText()), max)
+		local max = ns:ParseMoney(panel.max:GetText())
+		if not max then
+			Status("|cffff6060Most per item is missing or unreadable.|r Write it like 1g20s, 85s or 85 (silver).")
+			return
+		end
+		local qty = tonumber(panel.qty:GetText()) or 1
+		for _, it in pairs(ns.Items) do            -- the Auction House's capitals, when we know the item
+			if it.n:lower() == name:lower() then name = it.n break end
+		end
+		panel.item:SetText(name)
+		panel.qty:SetText(tostring(qty))
+		if ns:BuyStart(name, qty, max) then Status(Describe()) end
+	end)
+
+	-- the item selected in the normal Auction House list
+	local sel = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+	sel:SetWidth(70)
+	sel:SetHeight(16)
+	sel:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -10, -76)
+	sel:SetText("Selected")
+	sel:SetScript("OnClick", function()
+		local i = GetSelectedAuctionItem and GetSelectedAuctionItem("list")
+		local name = i and i > 0 and GetAuctionItemInfo("list", i)
+		if name then
+			panel.item:SetText(name)
+		else
+			Status("Click an item in the Auction House list first, then Selected.")
+		end
 	end)
 
 	local stop = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
@@ -345,6 +411,16 @@ local function Build()
 	panel.status:SetText("Pick or type an item, how many, and the most per item, then Search.")
 
 	panel:SetScript("OnShow", function() if job then Status(Describe()) end end)
+
+	-- shift-clicking an item while the name box has focus puts its name there
+	if hooksecurefunc and ChatEdit_InsertLink then
+		hooksecurefunc("ChatEdit_InsertLink", function(link)
+			if panel.item:HasFocus() and link then
+				local name = link:match("%[(.-)%]")
+				if name then panel.item:SetText(name) end
+			end
+		end)
+	end
 end
 
 ----------------------------------------------------------------------
