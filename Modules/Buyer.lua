@@ -32,13 +32,15 @@ local panel
 local job                    -- the current buying job, see ns:BuyStart
 
 ----------------------------------------------------------------------
--- prices typed by people: "1g20s", "85s", "85" (silver), "1.5g"
+-- prices typed by people: "1g20s", "85s", "65" (gold), "1.5g"
 ----------------------------------------------------------------------
 
 function ns:ParseMoney(text)
 	text = (text or ""):lower():gsub("%s", "")
 	if text == "" then return nil end
-	if text:match("^%d+%.?%d*$") then return math.floor(tonumber(text) * 100 + 0.5) end
+	-- a bare number is GOLD: at the Auction House "65" means 65g (it was
+	-- read as silver once, and 65s bought nothing where 64g was listed)
+	if text:match("^%d+%.?%d*$") then return math.floor(tonumber(text) * 10000 + 0.5) end
 	local total, any = 0, false
 	for num, unit in text:gmatch("(%d+%.?%d*)([gsc])") do
 		local mult = unit == "g" and 10000 or (unit == "s" and 100 or 1)
@@ -62,78 +64,139 @@ local function Me()
 	return UnitName("player")
 end
 
---- A listing on the shown page that qualifies: this item, a buyout, not
---- ours, at or under the limit. Returns index, count, buyout, unit.
-local function Qualifies(i)
-	local name, _, count, _, _, _, _, _, buyout, _, _, owner = GetAuctionItemInfo("list", i)
-	if not name or name:lower() ~= job.name:lower() then return nil end
-	if not buyout or buyout <= 0 or owner == Me() then return nil end
-	count = math.max(1, count or 1)
-	local unit = buyout / count
-	if unit > job.max then return nil end
-	return i, count, buyout, unit
+--[[ HOW A JOB RUNS
+     1. Search reads EVERY result page (up to MAX_PAGES) and collects each
+        listing under the limit: page, count, buyout, seller. The first
+        version looked at one page at a time and reported only that page,
+        so a cheap listing elsewhere looked like "over your limit".
+     2. Buy next buys the cheapest collected listing. Its page is opened
+        first if another is shown; the listing is found again on it by
+        count, buyout and seller (positions shift as things sell).
+     3. After every purchase the search runs again: listings move up
+        between pages as others sell, and the next buy must not aim at
+        one that is gone.                                                 ]]
+
+local function Load(page)
+	job.page = page
+	job.state = "loading"
+	job.queried = false
 end
 
---- The cheapest qualifying listing on the page shown.
-local function BestOnPage()
-	local best
-	local shown = GetNumAuctionItems("list") or 0
-	for i = 1, shown do
-		local idx, count, buyout, unit = Qualifies(i)
-		if idx and (not best or unit < best.unit or (unit == best.unit and count < best.count)) then
-			best = { index = idx, count = count, buyout = buyout, unit = unit }
+local function Rescan()
+	job.found = {}
+	job.seen = { listed = 0, mine = 0, bidOnly = 0 }
+	job.scanning = true
+	Load(0)
+end
+
+--- Read the page shown: every listing of this item, into job.found (under
+--- the limit, not ours, with a buyout) and job.seen (what was there).
+local function ReadPage()
+	local s = job.seen
+	for i = 1, (GetNumAuctionItems("list") or 0) do
+		local name, _, count, _, _, _, minBid, _, buyout, bidAmount, _, owner = GetAuctionItemInfo("list", i)
+		if name and name:lower() == job.name:lower() then
+			count = math.max(1, count or 1)
+			s.listed = s.listed + 1
+			-- the bid shown in the Auction House's price column, per item
+			local bid = (((bidAmount or 0) > 0) and bidAmount or (minBid or 0)) / count
+			if bid > 0 and (not s.bid or bid < s.bid) then s.bid = bid end
+			if owner == Me() then
+				s.mine = s.mine + 1
+			elseif not buyout or buyout <= 0 then
+				s.bidOnly = s.bidOnly + 1
+			else
+				local unit = buyout / count
+				if not s.cheapest or unit < s.cheapest then s.cheapest = unit end
+				if unit <= job.max then
+					table.insert(job.found, { page = job.page, name = name, count = count, buyout = buyout,
+					                          unit = unit, owner = owner })
+				end
+			end
 		end
 	end
-	return best
 end
 
-local function Query(page)
-	job.page = page
-	job.state = "searching"
-	job.queried = false
-	Status("Searching page " .. (page + 1) .. "...")
+local Describe
+
+--- A requested page has arrived (or only empty answers came in time).
+local function PageArrived()
+	local shown, total = GetNumAuctionItems("list")
+	if job.scanning then
+		if job.page == 0 then
+			job.pages = math.min(MAX_PAGES, math.max(1, math.ceil((total or shown or 0) / PAGE)))
+		end
+		ReadPage()
+		if job.page + 1 < job.pages then
+			Load(job.page + 1)
+			Status(Describe())
+			return
+		end
+		job.scanning = false
+		table.sort(job.found, function(a, b)
+			if a.unit ~= b.unit then return a.unit < b.unit end
+			return a.count < b.count
+		end)
+	end
+	-- open the page that holds the next listing to buy
+	local t = job.found[1]
+	if t and t.page ~= job.page and job.bought < job.want then
+		Load(t.page)
+		Status(Describe())
+		return
+	end
+	job.state = "ready"
+	Status(Describe())
 end
 
-local function Describe()
+--- The index of the next listing to buy on the page shown, or nil.
+local function FindTarget()
+	local t = job.found[1]
+	if not t then return nil end
+	for i = 1, (GetNumAuctionItems("list") or 0) do
+		local name, _, count, _, _, _, _, _, buyout, _, _, owner = GetAuctionItemInfo("list", i)
+		if name == t.name and math.max(1, count or 1) == t.count and buyout == t.buyout and owner == t.owner then
+			return i
+		end
+	end
+end
+
+function Describe()
 	if not job then return "" end
 	local head = string.format("Bought %d of %d x %s (at most %s each).", job.bought, job.want, job.name,
 		UI.Money(job.max))
 	if job.bought >= job.want then return head .. "\n|cff60ff60Done.|r" end
-	if job.state == "searching" then return head .. "\nSearching..." end
 	if job.state == "waiting" then return head .. "\nWaiting for the Auction House..." end
-	local best = BestOnPage()
-	if best then
-		local extra = best.count > job.want - job.bought and
-			string.format(" |cffff8040(%d more than you need)|r", best.count - (job.want - job.bought)) or ""
-		return head .. string.format("\nNext click: buy %d at %s each = %s%s", best.count, UI.Money(best.unit),
-			UI.Money(best.buyout), extra)
-	end
-	if job.page + 1 < job.pages then return head .. "\nNext click: look at page " .. (job.page + 2) .. "." end
-	-- say WHY nothing qualifies, from what the page actually holds
-	local listed, cheapest, mine, bidOnly = 0, nil, 0, 0
-	for i = 1, (GetNumAuctionItems("list") or 0) do
-		local name, _, count, _, _, _, _, _, buyout, _, _, owner = GetAuctionItemInfo("list", i)
-		if name and name:lower() == job.name:lower() then
-			listed = listed + 1
-			if owner == Me() then
-				mine = mine + 1
-			elseif not buyout or buyout <= 0 then
-				bidOnly = bidOnly + 1
-			else
-				local unit = buyout / math.max(1, count or 1)
-				if not cheapest or unit < cheapest then cheapest = unit end
-			end
+	if job.state == "loading" then
+		if job.scanning then
+			return head .. string.format("\nSearching page %d%s...", job.page + 1,
+				job.pages and job.page > 0 and (" of " .. job.pages) or "")
 		end
+		return head .. "\nOpening page " .. (job.page + 1) .. "..."
 	end
-	if listed == 0 then
+	local t = job.found[1]
+	if t then
+		local need = job.want - job.bought
+		local extra = t.count > need and string.format(" |cffff8040(%d more than you need)|r", t.count - need) or ""
+		return head .. string.format("\nFound %d under your limit on %d page%s.\nNext click: buy %d at %s each = %s%s",
+			#job.found, job.pages, job.pages == 1 and "" or "s", t.count, UI.Money(t.unit), UI.Money(t.buyout), extra)
+	end
+	-- nothing to buy: say WHY, from everything the search saw
+	local s = job.seen
+	if s.listed == 0 then
 		return head .. "\n|cffff8040The Auction House has no " .. job.name
 			.. " right now.|r Check the name: it must be the item's full name."
 	end
-	local why = string.format("\n|cffff8040%d %s listed", listed, job.name)
-	if cheapest then why = why .. ", cheapest " .. UI.Money(cheapest) .. " each: over your limit" end
-	if mine > 0 then why = why .. ", " .. mine .. " yours" end
-	if bidOnly > 0 then why = why .. ", " .. bidOnly .. " without buyout" end
-	return head .. why .. ".|r"
+	local why = string.format("\n|cffff8040%d %s listed", s.listed, job.name)
+	if s.cheapest then why = why .. ", cheapest buyout " .. UI.Money(s.cheapest) .. " each: over your limit" end
+	if s.mine > 0 then why = why .. ", " .. s.mine .. " yours" end
+	if s.bidOnly > 0 then why = why .. ", " .. s.bidOnly .. " without buyout" end
+	why = why .. ".|r"
+	if s.bid and s.bid <= job.max then
+		why = why .. "\nBids start at " .. UI.Money(s.bid) .. " (the big price in the Auction House list), "
+			.. "but the buyer only buys out."
+	end
+	return head .. why
 end
 
 --- Start buying: name, quantity, most per item (copper).
@@ -146,9 +209,9 @@ function ns:BuyStart(name, want, max)
 		ns:Print("the buyer needs an item name, how many, and the most you pay per item.")
 		return false
 	end
-	job = { name = name, want = math.floor(want), max = max, bought = 0, spent = 0, page = 0, pages = 1,
-	        passEmpty = true }
-	Query(0)
+	job = { name = name, want = math.floor(want), max = max, bought = 0, spent = 0, page = 0, pages = 1 }
+	Rescan()
+	Status(Describe())
 	return true
 end
 
@@ -162,43 +225,38 @@ function ns:BuyJob()
 	return job
 end
 
---- One step: buy the cheapest qualifying listing, or move to the next page.
---- Must run from a click or key press (see the header).
+--- Buy the cheapest listing under the limit. Must run from a click or key
+--- press (see the header).
 function ns:BuyNext()
 	if not job then
 		ns:Print("nothing to buy: start with Search in the buyer panel.")
 		return false
 	end
-	if job.bought >= job.want then
+	if job.bought >= job.want or job.state ~= "ready" then
 		Status(Describe())
 		return false
 	end
-	if job.state ~= "ready" then return false end
-	local best = BestOnPage()
-	if best then
-		if GetMoney() < best.buyout then
-			Status(Describe() .. "\n|cffff6060Not enough gold for it.|r")
-			return false
-		end
-		job.state, job.waitStart = "waiting", GetTime()
-		job.passEmpty = false
-		job.bought = job.bought + best.count
-		job.spent = job.spent + best.buyout
-		PlaceAuctionBid("list", best.index, best.buyout)
+	local t = job.found[1]
+	if not t then
+		Status(Describe())
+		return false
+	end
+	local index = FindTarget()
+	if not index then
+		Rescan()                     -- it sold or moved: look again
 		Status(Describe())
 		return true
 	end
-	-- nothing left here: the next page, or start over from the first page
-	-- (buying shifts listings forward) unless a whole pass found nothing
-	if job.page + 1 < job.pages then
-		Query(job.page + 1)
-	elseif not job.passEmpty then
-		job.passEmpty = true
-		Query(0)
-	else
-		Status(Describe())
+	if GetMoney() < t.buyout then
+		Status(Describe() .. "\n|cffff6060Not enough gold for it.|r")
 		return false
 	end
+	table.remove(job.found, 1)
+	job.state, job.waitStart = "waiting", GetTime()
+	job.bought = job.bought + t.count
+	job.spent = job.spent + t.buyout
+	PlaceAuctionBid("list", index, t.buyout)
+	Status(Describe())
 	return true
 end
 
@@ -213,25 +271,28 @@ end
 
 local EMPTY_GRACE = 3        -- seconds an empty answer is distrusted after a search
 
-local function OnListUpdate()
-	if not job then return end
-	if job.state == "searching" and job.queried then
-		local shown, total = GetNumAuctionItems("list")
-		-- an update can arrive with the list still empty before the results
-		-- do; an empty answer is only believed after EMPTY_GRACE seconds
-		if (shown or 0) == 0 and GetTime() - job.queriedAt < EMPTY_GRACE then return end
-		job.pages = math.min(MAX_PAGES, math.max(1, math.ceil((total or shown or 0) / PAGE)))
+--- After a purchase: done, or search again for the next one.
+local function AfterPurchase()
+	if job.bought >= job.want then
+		ns:Print(string.format("bought %d x %s for %s.", job.bought, job.name, UI.Money(job.spent)))
 		job.state = "ready"
 		Status(Describe())
-	elseif job.state == "ready" then
-		Status(Describe())           -- any change to the list: say what the next click does now
+	else
+		Rescan()
+		Status(Describe())
+	end
+end
+
+local function OnListUpdate()
+	if not job then return end
+	if job.state == "loading" and job.queried then
+		-- an update can arrive with the list still empty before the results
+		-- do; an empty answer is only believed after EMPTY_GRACE seconds
+		local shown = GetNumAuctionItems("list")
+		if (shown or 0) == 0 and GetTime() - job.queriedAt < EMPTY_GRACE then return end
+		PageArrived()
 	elseif job.state == "waiting" then
-		-- the purchase went through: read the page again so the next buy
-		-- never aims at a listing that is already gone
-		if job.bought >= job.want then
-			ns:Print(string.format("bought %d x %s for %s.", job.bought, job.name, UI.Money(job.spent)))
-		end
-		Query(job.page)
+		AfterPurchase()
 	end
 end
 
@@ -243,18 +304,15 @@ local function Tick(now)
 		ns:BuyStop()
 		return
 	end
-	if job.state == "searching" and not job.queried and CanSendAuctionQuery() then
+	if job.state == "loading" and not job.queried and CanSendAuctionQuery() then
 		job.queried, job.queriedAt = true, now
 		ns:AuctionSearch(job.name, job.page)
-	elseif job.state == "searching" and job.queried and now - job.queriedAt > EMPTY_GRACE then
-		-- only empty answers came: the search really found nothing
-		local shown, total = GetNumAuctionItems("list")
-		job.pages = math.min(MAX_PAGES, math.max(1, math.ceil((total or shown or 0) / PAGE)))
-		job.state = "ready"
-		Status(Describe())
+	elseif job.state == "loading" and job.queried and now - job.queriedAt > EMPTY_GRACE then
+		PageArrived()                -- only empty answers came: the page really is empty
 	elseif job.state == "waiting" and now - job.waitStart > WAIT_TIMEOUT then
-		Query(job.page)              -- no list update came: read the page again
-	elseif job.state == "ready" and ns:Get("buyer", "auto") and job.bought < job.want and now - lastAuto >= AUTO_EVERY then
+		AfterPurchase()              -- no list update came: carry on
+	elseif job.state == "ready" and ns:Get("buyer", "auto") and job.bought < job.want and job.found[1]
+		and now - lastAuto >= AUTO_EVERY then
 		lastAuto = now
 		ns:BuyNext()
 	end
@@ -303,7 +361,7 @@ end
 local function Build()
 	panel = CreateFrame("Frame", "FycoProfessionsBuyer", AuctionFrame)
 	panel:SetWidth(230)
-	panel:SetHeight(300)
+	panel:SetHeight(330)
 	panel:SetPoint("TOPLEFT", AuctionFrame, "TOPRIGHT", -2, -12)
 	panel:SetBackdrop({
 		bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
@@ -342,14 +400,27 @@ local function Build()
 	local l2 = Label(panel, "How many", nil, 12, -122)
 	panel.qty = EditBox(panel, "FycoProfessionsBuyerQty", 60, true)
 	panel.qty:SetPoint("TOPLEFT", l2, "BOTTOMLEFT", 4, -2)
-	local l3 = Label(panel, "Most per item (1g20s, 85s)", nil, 90, -122)
+	local l3 = Label(panel, "Most each (65, 1g20s, 85s)", nil, 90, -122)
 	panel.max = EditBox(panel, "FycoProfessionsBuyerMax", 110)
 	panel.max:SetPoint("TOPLEFT", l3, "BOTTOMLEFT", 4, -2)
+	-- how the price is being read, live, so "65" vs "65s" is never a surprise
+	panel.maxRead = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+	panel.maxRead:SetPoint("TOPLEFT", panel.max, "BOTTOMLEFT", -4, -1)
+	panel.max:SetScript("OnTextChanged", function(self)
+		local v = ns:ParseMoney(self:GetText())
+		if self:GetText() == "" then
+			panel.maxRead:SetText("")
+		elseif v then
+			panel.maxRead:SetText("|cff60ff60= " .. UI.Money(v) .. " each|r")
+		else
+			panel.maxRead:SetText("|cffff6060not a price|r")
+		end
+	end)
 
 	local search = CreateFrame("Button", "FycoProfessionsBuyerSearch", panel, "UIPanelButtonTemplate")
 	search:SetWidth(100)
 	search:SetHeight(22)
-	search:SetPoint("TOPLEFT", 12, -166)
+	search:SetPoint("TOPLEFT", 12, -176)
 	search:SetText("Search")
 	search:SetScript("OnClick", function()
 		-- every problem goes on the panel itself: a message only in chat
@@ -361,7 +432,7 @@ local function Build()
 		end
 		local max = ns:ParseMoney(panel.max:GetText())
 		if not max then
-			Status("|cffff6060Most per item is missing or unreadable.|r Write it like 1g20s, 85s or 85 (silver).")
+			Status("|cffff6060Most per item is missing or unreadable.|r Write it like 65 (gold), 1g20s or 85s.")
 			return
 		end
 		local qty = tonumber(panel.qty:GetText()) or 1
@@ -399,12 +470,12 @@ local function Build()
 	panel.buy = CreateFrame("Button", "FycoProfessionsBuyerBuy", panel, "UIPanelButtonTemplate")
 	panel.buy:SetWidth(206)
 	panel.buy:SetHeight(30)
-	panel.buy:SetPoint("TOPLEFT", 12, -194)
+	panel.buy:SetPoint("TOPLEFT", 12, -204)
 	panel.buy:SetText("Buy next")
 	panel.buy:SetScript("OnClick", function() ns:BuyNext() end)
 
 	panel.status = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-	panel.status:SetPoint("TOPLEFT", 12, -230)
+	panel.status:SetPoint("TOPLEFT", 12, -240)
 	panel.status:SetWidth(206)
 	panel.status:SetJustifyH("LEFT")
 	panel.status:SetJustifyV("TOP")
@@ -437,7 +508,7 @@ function ns:BuyCommand(rest)
 	end
 	local max = ns:ParseMoney(price)
 	if not max then
-		ns:Print("the most per item reads like 1g20s, 85s or 85 (silver).")
+		ns:Print("the most per item reads like 65 (gold), 1g20s or 85s.")
 		return
 	end
 	-- match the name the Auction House uses, with its capitals

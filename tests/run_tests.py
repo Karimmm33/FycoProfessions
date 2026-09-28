@@ -781,8 +781,8 @@ def price_command_shows_the_listings():
 @test
 def money_is_read_the_way_people_type_it():
     c = Client()
-    for text, copper in (("1g20s", 12000), ("85s", 8500), ("85", 8500), ("1.5g", 15000), ("2g 5c", 20005),
-                         ("45c", 45), ("0.5", 50)):
+    for text, copper in (("1g20s", 12000), ("85s", 8500), ("85", 850000), ("65", 650000), ("1.5g", 15000), ("2g 5c", 20005),
+                         ("45c", 45), ("0.5", 5000)):
         assert c.eval('ns:ParseMoney("%s")' % text) == copper, text
     for bad in ("abc", "5x", "", "g"):
         assert c.eval('ns:ParseMoney("%s")' % bad) is None, bad
@@ -825,7 +825,7 @@ def buyer_buys_cheapest_first_under_the_limit():
     c.run("ns:BuyNext()"); settle(c)
     assert not c.eval("ns:BuyNext()")
     s = strip_colors(c.eval("FycoProfessionsBuyer.status:GetText()"))
-    assert "cheapest 90s 00c each: over your limit, 1 yours" in s, s
+    assert "cheapest buyout 90s 00c each: over your limit, 1 yours" in s, s
     bought = [(c.eval("MOCK.bought[%d].count" % i), c.eval("MOCK.bought[%d].paid" % i))
               for i in range(1, c.eval("#MOCK.bought") + 1)]
     assert bought == [(10, 70000), (1, 7500)], bought
@@ -840,7 +840,7 @@ def buyer_ignores_the_empty_answer_before_the_results():
     buyer_at_ah(c, [])
     c.run('ns:BuyStart("Chalcedony", 5, 20000); MOCK.advance(0.2)')
     c.run('MOCK.fire("AUCTION_ITEM_LIST_UPDATE")')             # empty: the search just left
-    assert c.eval("ns:BuyJob().state") == "searching"
+    assert c.eval("ns:BuyJob().state") == "loading"
     c.run('MOCK.auctions = { {36923, 2, 2 * 15000, "Chalcedony", "Ann"} }; MOCK.fire("AUCTION_ITEM_LIST_UPDATE")')
     assert c.eval("ns:BuyJob().state") == "ready"
     assert "Next click: buy 2 at 1g 50s" in strip_colors(c.eval("FycoProfessionsBuyer.status:GetText()"))
@@ -890,7 +890,7 @@ def buyer_typed_search_and_its_messages():
     settle(c)
     # 3g each is over 2g, and the cheap one is ours: it says so
     s = status()
-    assert "2 Huge Citrine listed, cheapest 3g 00s each: over your limit, 1 yours" in s, s
+    assert "2 Huge Citrine listed, cheapest buyout 3g 00s each: over your limit, 1 yours" in s, s
     # "Selected" copies the row picked in the Auction House list
     c.run('MOCK.selectedAuction = 1; FycoProfessionsBuyerItem:SetText("")')
     c.run("""for _, f in ipairs(MOCK.frames) do
@@ -901,6 +901,63 @@ def buyer_typed_search_and_its_messages():
           'ChatEdit_InsertLink("|cff0070dd|Hitem:36923:0:0:0:0:0:0:0:0|h[Chalcedony]|h|r")')
     assert c.eval("FycoProfessionsBuyerItem:GetText()") == "Chalcedony"
     no_errors(c)
+
+
+def paged(c, pages):
+    """Put listings on Auction House pages: {page: [(id, count, buyout, name, owner, minBid)]}."""
+    body = ", ".join("[%d] = { %s }" % (p, ", ".join(
+        '{%d, %d, %d, "%s", "%s", %d}' % (l + (0,) * (6 - len(l))) for l in ls)) for p, ls in pages.items())
+    c.run("MOCK.pages = { %s }; MOCK.auctions = {}" % body)
+
+
+@test
+def buyer_reads_every_page_and_buys_the_cheapest_overall():
+    # reported from game: 64g necklaces were listed, the buyer looked at one
+    # page at a time and only ever reported the page it was on (80g+)
+    DN = 7430
+    c = Client()
+    open_ah(c)
+    c.run("MOCK.canQuery = true; MOCK.bought = {}")
+    page0 = [(DN, 1, 800000 + i * 1000, "Damaged Necklace", "Seller%d" % i) for i in range(50)]
+    page1 = [(DN, 1, 640000, "Damaged Necklace", "Cheap"), (DN, 1, 645000, "Damaged Necklace", "Cheap2")]
+    paged(c, {0: page0, 1: page1})
+    c.run('ns:BuyStart("Damaged Necklace", 5, 650000)')
+    for _ in range(4):
+        settle(c)
+    s = strip_colors(c.eval("FycoProfessionsBuyer.status:GetText()"))
+    assert "Found 2 under your limit on 2 pages" in s and "Next click: buy 1 at 64g 00s" in s, s
+    assert c.eval("ns:BuyJob().page") == 1, "the page with the cheap one is not the one shown"
+    assert c.eval("ns:BuyNext()")
+    assert c.eval("MOCK.bought[1].paid") == 640000
+    c.run("MOCK.pages[1] = MOCK.auctions")          # the server's list without the sold one
+    for _ in range(6):
+        settle(c)
+    assert c.eval("ns:BuyNext()")
+    assert c.eval("MOCK.bought[2].paid") == 645000
+    no_errors(c)
+
+
+@test
+def buyer_explains_bids_under_the_limit():
+    c = Client()
+    buyer_at_ah(c, [])
+    paged(c, {0: [(7430, 1, 800000, "Damaged Necklace", "Ann", 640000)]})
+    c.run('ns:BuyStart("Damaged Necklace", 5, 650000)')
+    settle(c)
+    s = strip_colors(c.eval("FycoProfessionsBuyer.status:GetText()"))
+    assert "cheapest buyout 80g 00s each: over your limit" in s, s
+    assert "Bids start at 64g 00s" in s and "only buys out" in s, s
+
+
+@test
+def buyer_price_box_shows_how_it_reads_the_price():
+    c = Client()
+    open_ah(c)
+    for text, shown in (("65", "= 65g 00s each"), ("65s", "= 65s 00c each"), ("1g20s", "= 1g 20s each"),
+                        ("abc", "not a price")):
+        c.run('FycoProfessionsBuyerMax:SetText("%s")' % text)
+        got = strip_colors(c.eval("FycoProfessionsBuyer.maxRead:GetText()"))
+        assert got == shown, (text, got)
 
 
 @test

@@ -445,6 +445,14 @@ function QueryAuctionItems(name, minL, maxL, invType, class, subclass, page, usa
 	local filtered = minL ~= nil or maxL ~= nil or invType ~= nil or class ~= nil or subclass ~= nil
 		or usable ~= nil or rarity ~= nil
 	table.insert(MOCK.queries, { name = name, page = page, all = getAll, filtered = filtered })
+	-- MOCK.pages = { [0] = {listings}, [1] = {...} }: results come a page at a time
+	if MOCK.pages and not getAll then
+		MOCK.curPage = page or 0
+		MOCK.auctions = MOCK.pages[MOCK.curPage] or {}
+		local total = 0
+		for _, p in pairs(MOCK.pages) do total = total + #p end
+		MOCK.auctionTotal = total
+	end
 	if filtered and not getAll then MOCK.auctions = {} end
 end
 -- like the client: listings on this page, then the total the search found
@@ -453,11 +461,11 @@ function GetAuctionItemLink(_, i)
 	local a = MOCK.auctions[i]
 	return a and ("|cffffffff|Hitem:" .. a[1] .. ":0:0:0:0:0:0:0:0|h[x]|h|r") or nil
 end
--- listings: { id, count, buyout, name, owner }
+-- listings: { id, count, buyout, name, owner, minBid }
 function GetAuctionItemInfo(_, i)
 	local a = MOCK.auctions[i]
 	if not a then return nil end
-	return a[4] or "Item", "icon", a[2], 1, 1, 1, 0, 0, a[3], 0, nil, a[5] or "Seller"
+	return a[4] or "Item", "icon", a[2], 1, 1, 1, a[6] or 0, 0, a[3], 0, nil, a[5] or "Seller"
 end
 
 -- buying: records the purchase, takes the gold, removes the listing (the

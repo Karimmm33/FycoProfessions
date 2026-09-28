@@ -1,6 +1,6 @@
 # FycoProfessions in-game testing sheet
 
-> **Status (0.12.1): every phase is built and passes the automated suite. In
+> **Status (0.12.2): every phase is built and passes the automated suite. In
 > game, only the settings width fix (C0) is confirmed so far; everything else,
 > including the new map pins (section O), still needs testing.** This sheet
 > covers all of it, in the order it was built.
@@ -46,7 +46,7 @@ tell me what the game shows and I will correct the data.
 
 | ID | How | Expected |
 |---|---|---|
-| A1 | Log in and look at chat. | One line: `FycoProfessions v0.12.1 - x2, target: your rank's cap, <your faction>. /fprof to open.` (auto) |
+| A1 | Log in and look at chat. | One line: `FycoProfessions v0.12.2 - x2, target: your rank's cap, <your faction>. /fprof to open.` (auto) |
 | A2 | Look at the edge of the minimap. | A round button with a note icon, separate from FycoPvE's book button. |
 | A3 | Type `/fprof help`. | A list of twelve commands, with no red text. (auto) |
 | A4 | Type `/reload`. | The same greeting again, and no errors. |
@@ -55,7 +55,7 @@ tell me what the game shows and I will correct the data.
 
 | ID | How | Expected |
 |---|---|---|
-| B1 | Type `/fprof`. | A window titled **FycoProfessions v0.12.1**, grey line under it `Guide: x2, target: your rank's cap, <faction>`, a **Settings** button top-right. Tab buttons: one per profession you have (for example **Jewelcrafting**, **Skinning**, **Cooking**, **First Aid**, **Fishing**) and **All professions** last. No tab for a profession you do not have. (auto) |
+| B1 | Type `/fprof`. | A window titled **FycoProfessions v0.12.2**, grey line under it `Guide: x2, target: your rank's cap, <faction>`, a **Settings** button top-right. Tab buttons: one per profession you have (for example **Jewelcrafting**, **Skinning**, **Cooking**, **First Aid**, **Fishing**) and **All professions** last. No tab for a profession you do not have. (auto) |
 | B2 | Drag the window by its title area, close it with X, then `/fprof` again. | It reopens where you left it. |
 | B3 | With the window open, press **Escape**. | It closes. |
 | B4 | Left-click the minimap button, then right-click it. | Left opens and closes the window. Right opens *Interface → AddOns → FycoProfessions*. |
@@ -252,6 +252,9 @@ Best done on your skinner in Ashenvale (or any zone with mobs you can skin).
 | P2 | Pick an item from the dropdown. | Item name and how many are filled in; Most per item is filled with the scanned price + 20% if it was empty. |
 | P2b | Any item, not only your path's: click an item in the normal Auction House list, then **Selected**; or click in the name box and shift-click an item link. Leave **Most per item** empty and click **Search**. | The name box gets the item's name. With no price, the panel's status line says `Most per item is missing ...` (nothing happens silently). (auto) |
 | P3 | Type `Shadow Crystal`, `60`, `80s`, click **Search**. | Status: `Bought 0 of 60 x Shadow Crystal (at most 80s 00c each).` and `Next click: buy N at X each = Y` -- the cheapest listing under 80s. (auto) |
+| P3a | Type prices in **Most each**: `65`, `65s`, `1g20s`, `abc`. | Under the box, live: `= 65g 00s each` (a bare number is gold), `= 65s 00c each`, `= 1g 20s each`, `not a price`. (auto) |
+| P3c | Search for an item with more than one page of results where the cheap ones are not on the first page (Damaged Necklace, 5, `65`). | `Searching page 1 of 2...`, then `Found N under your limit on 2 pages.` and `Next click: buy 1 at 64g ...` -- the cheapest across all pages; the Auction House list jumps to the page that holds it. (auto) |
+| P3d | Search with a limit above some bids but below every buyout. | The status adds `Bids start at X (the big price in the Auction House list), but the buyer only buys out.` (auto) |
 | P3b | Search for something listed only above your limit, or only by you. | The status says why nothing can be bought: `N <item> listed, cheapest X each: over your limit`, `N yours`, `N without buyout`, or `The Auction House has no <item> right now`. (auto) |
 | P4 | Click **Buy next** a few times. | Each click buys exactly the listing the status line named; the line then names the next one. Your own listings and anything over 80s are never bought. The count goes up; at 60 it says **Done**. (auto) |
 | P5 | Bind a key: Esc → Key Bindings → **FycoProfessions** → **Buy next auction**. Press it instead of clicking. | Same as P4. |
@@ -275,7 +278,7 @@ Best done on your skinner in Ashenvale (or any zone with mobs you can skin).
 ## Automated tests
 
 `py -3.11 tests/run_tests.py` (needs `pip install lupa`) loads the real addon,
-with all its generated data, into Lua 5.1 against the mock client. 69 tests,
+with all its generated data, into Lua 5.1 against the mock client. 72 tests,
 among them:
 
 | Test | Covers |
